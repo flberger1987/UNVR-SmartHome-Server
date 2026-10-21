@@ -109,7 +109,9 @@ fi
 mountpoint -q "$P/srv" || mount -o loop,noatime "$P/srv.img" "$P/srv"
 
 # UCKP identity: the box's board data with the Cloud Key's model ID (0xe970,
-# UCK-G2-PLUS), serial and MACs derived from MAC, a new UUID
+# UCK-G2-PLUS) and CPU ID (the Network app identifies its host by architecture,
+# model and CPU ID), serial, MACs and a v5 board UUID (as on real
+# devices; the Network app rejects other versions) derived from MAC
 if [ ! -f "$P/system.info" ]; then
     hex=$(echo "$MAC" | tr -d :)
     last=$((16#${hex:10:2}))
@@ -126,11 +128,12 @@ if [ ! -f "$P/system.info" ]; then
         $1=="device.hashid" {$2=h}
         $1=="device.anonid" {$2=a}
         {print}' /proc/ubnthal/system.info > "$P/system.info"
-    /sbin/ubnt-tools id | awk -F= -v OFS== -v s="${hex^^}" -v u="$(cat /proc/sys/kernel/random/uuid)" '
+    /sbin/ubnt-tools id | awk -F= -v OFS== -v s="${hex^^}" -v u="$(python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_OID, sys.argv[1]))' "unvr-unas-uckp-$hex")" '
         $1=="board.sysid" {$2="0xe970"}
         $1=="board.name" {$2="UniFi Cloud Key Gen2 Plus"}
         $1=="board.shortname" {$2="UCKP"}
         $1=="board.storename" {$2="UCK-G2-PLUS"}
+        $1=="board.cpu.id" {$2="410fd034-00000000"}   # Cortex-A53; the Network app matches host by CPU ID
         $1=="board.serialno" || $1=="board.qrid" {$2=s}
         $1=="board.uuid" {$2=u}
         {print}' > "$P/board.info"

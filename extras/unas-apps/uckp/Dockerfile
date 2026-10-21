@@ -41,7 +41,12 @@ RUN set -e; \
     rm -f "$hooks/01-bootup_top_wa.sh" "$hooks/10-srv-link" "$hooks/10-scan-dot-srv"; \
     mv /sbin/ubnt-tools /sbin/ubnt-tools.real; \
     mv /usr/bin/ustorage /usr/bin/ustorage.real; \
-    mkdir -p /data /persistent /srv /var/opt/unifi-protect/tmp
+    mkdir -p /data /persistent /srv /var/opt/unifi-protect/tmp; \
+    # unifi-core reads eth0's DNS from systemd-resolved, which is masked here
+    printf '%s\n' 'd /run/systemd/resolve 0755 root root -' \
+        'L+ /run/systemd/resolve/resolv.conf - - - - /etc/resolv.conf' \
+        'L+ /run/systemd/resolve/stub-resolv.conf - - - - /etc/resolv.conf' \
+        > /usr/lib/tmpfiles.d/unas-resolv.conf
 
 COPY ubnt-tools /sbin/ubnt-tools
 COPY ustorage /usr/bin/ustorage

@@ -82,7 +82,8 @@ if [ ! -f "$P/srv.img" ]; then
 fi
 mountpoint -q "$P/srv" || mount -o loop,noatime "$P/srv.img" "$P/srv"
 
-# identity of its own: UNVR board data with serial and MACs derived from MAC
+# identity of its own: UNVR board data with serial, MACs and a v5 board UUID
+# (as on real devices) derived from MAC
 if [ ! -f "$P/system.info" ]; then
     hex=$(echo "$MAC" | tr -d :)
     last=$((16#${hex:10:2}))
@@ -96,7 +97,7 @@ if [ ! -f "$P/system.info" ]; then
         $1=="device.hashid" {$2=h}
         $1=="device.anonid" {$2=a}
         {print}' /proc/ubnthal/system.info > "$P/system.info"
-    /sbin/ubnt-tools id | awk -F= -v OFS== -v s="${hex^^}" -v u="$(cat /proc/sys/kernel/random/uuid)" '
+    /sbin/ubnt-tools id | awk -F= -v OFS== -v s="${hex^^}" -v u="$(python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_OID, sys.argv[1]))' "unvr-unas-protect-$hex")" '
         $1=="board.serialno" || $1=="board.qrid" {$2=s}
         $1=="board.uuid" {$2=u}
         {print}' > "$P/board.info"
