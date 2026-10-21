@@ -107,12 +107,16 @@ Four-bay UNVR, UniFi OS 6.0.11, recovery kernel `99798c…`, four drives,
 macOS 26.5.1 (Xcode CLT 26.5), a UTC+1 time zone:
 
 - downgrade 6.0.11 → 5.1.33 with `uboot matched, skip`
-- converter steps 1–2 (sign-in with email MFA, Owner-scoped unregister, factory
-  reset, temporary ownership, baseline checks) and the full payload build,
-  with and without `--artifact-cache` (identical bundle hash)
 - `tools/build-modules.sh`: all three modules byte-identical to the pinned hashes
-
-The remaining steps are documented in the commit that records the full run.
+- full conversion with `tools/run-conversion.sh --skip-controller-cleanup`, all
+  drives removed: email MFA, Owner-scoped unregister, factory reset, payload
+  build from the caches (~40 s), prebuilt modules staged and verified (no
+  on-device compile), Drive 4.3.10, reboots, official UNAS Pro setup, finalizer.
+  About 25 minutes from `y` to `CONVERSION COMPLETE`.
+- afterwards: `guarded-fwupdate --profile-check` reports
+  `GUARDED_PROFILE_CHECK_OK stage=final physical=UNVR-5.1.33 logical=UNASPRO-5.1.33 drive=4.3.10`;
+  drives reinserted and a four-drive RAID 6 pool created in UniFi Drive
+  (md RAID 6 → LVM → Btrfs, 7.3 TB)
 
 ---
 
