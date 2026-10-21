@@ -1,0 +1,95 @@
+# Apps for a converted UNVR (UNAS Pro identity, kernel 4.19, cgroup v2 without BPF).
+#
+# The kernel has no veth/bridge/netfilter, so Docker runs with crun and
+# cgroup management disabled (see install-on-unas.sh). Services that need
+# their own address sit on a macvlan network on the LAN port; values come from
+# .env (see env.example). Docker's embedded DNS needs iptables, so DNS is set
+# explicitly. The UNAS itself cannot reach macvlan addresses (macvlan isolates
+# the parent host); every other device on the LAN can.
+#
+# Docker's embedded DNS (127.0.0.11) relies on iptables, which this kernel lacks,
+# so containers that need names get ./resolv.conf (written from LAN_DNS by
+# install-on-unas.sh) instead.
+name: unas-apps
+
+networks:
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: ${LAN_PARENT:-enp0s1}
+    ipam:
+      config:
+        - subnet: ${LAN_SUBNET:?set in .env}
+          gateway: ${LAN_GATEWAY:?set in .env}
+
+services:
+  unifi-network-application:
+    image: lscr.io/linuxserver/unifi-network-application:10.6.106-ls151
+    container_name: unifi-network-application
+    hostname: unifi
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${UNIFI_IP:?set in .env}
+    mac_address: ${UNIFI_MAC:-02:42:c0:a8:01:02}
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TZ:-Europe/Berlin}
+      MONGO_HOST: 127.0.0.1    # unifi-db shares this network namespace
+      MONGO_PORT: "27017"
+      MONGO_USER: unifi
+      MONGO_PASS: ${MONGO_PASS:?set in .env}
+      MONGO_DBNAME: unifi
+      MONGO_AUTHSOURCE: admin
+      MEM_LIMIT: "1024"        # no cgroup limits on this kernel; cap the JVM instead
+      MEM_STARTUP: "512"
+    volumes:
+      - ${APPS_ROOT:?set in .env}/unifi-network-application:/config
+      - ./resolv.conf:/etc/resolv.conf:ro
+
+  unifi-db:
+    image: mongo:4.4.18        # last MongoDB release that runs on ARMv8.0 (Cortex-A57)
+    container_name: unifi-db
+    restart: unless-stopped
+    network_mode: "service:unifi-network-application"
+    command: ["mongod", "--bind_ip", "127.0.0.1", "--port", "27017", "--wiredTigerCacheSizeGB", "0.25"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS:?set in .env}
+      MONGO_USER: unifi
+      MONGO_PASS: ${MONGO_PASS}
+      MONGO_DBNAME: unifi
+      MONGO_AUTHSOURCE: admin
+    volumes:
+      - ${APPS_ROOT}/unifi-db:/data/db
+      - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
+
+  loxberry:
+    image: loxberry-unas:3.0.1.3
+    container_name: loxberry
+    hostname: loxberry
+    restart: unless-stopped
+    privileged: true           # systemd inside the container
+    stop_signal: SIGRTMIN+3
+    # crun runs without cgroup management, so the container gets no cgroup
+    # tree of its own; systemd needs the host's (unas-docker.service has
+    # Delegate=yes, and PID-namespace isolation keeps host processes out of reach)
+    cgroup: host
+    networks:
+      lan:
+        ipv4_address: ${LOXBERRY_IP:?set in .env}
+    mac_address: ${LOXBERRY_MAC:-02:42:c0:a8:01:03}
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp:exec
+    volumes:
+      # named volume: seeded from the image on first start (a bind mount would
+      # hide the installed LoxBerry); lives under Docker's data-root on the RAID
+      - loxberry:/opt/loxberry
+      - ./resolv.conf:/etc/resolv.conf:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+volumes:
+  loxberry:

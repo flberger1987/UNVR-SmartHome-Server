@@ -1,0 +1,19 @@
+#!/bin/bash
+# Runs once on an empty /data/db: create the UniFi Network user and databases
+# (as described by linuxserver/unifi-network-application).
+if command -v mongosh >/dev/null 2>&1; then mongo_init_bin=mongosh; else mongo_init_bin=mongo; fi
+"$mongo_init_bin" <<EOF
+use ${MONGO_AUTHSOURCE}
+db.auth("${MONGO_INITDB_ROOT_USERNAME}", "${MONGO_INITDB_ROOT_PASSWORD}")
+db.createUser({
+  user: "${MONGO_USER}",
+  pwd: "${MONGO_PASS}",
+  roles: [
+    { db: "${MONGO_AUTHSOURCE}", role: "clusterMonitor" },
+    { db: "${MONGO_DBNAME}", role: "dbOwner" },
+    { db: "${MONGO_DBNAME}_stat", role: "dbOwner" },
+    { db: "${MONGO_DBNAME}_audit", role: "dbOwner" },
+    { db: "${MONGO_DBNAME}_restore", role: "dbOwner" }
+  ]
+})
+EOF

@@ -50,4 +50,14 @@ check() {
 check lib/zstd/zstd_compress.ko a05acb0c06dde88c1cf1b00759437a7cb338faa3e361fd946119b9dc49531043
 check fs/btrfs/btrfs.ko f9ae62b75113ad4291d1bd905e74c0749dea04e5dff79782b43c3d24a8badd9d
 check fs/fuse/fuse.ko b2d5296f516e8e2bcbf8f55d67790a930746984c9eec7c2ab6d2aa578fa142ab
+# Second pass, after the pinned modules: macvlan for containers with their own
+# LAN address. Only CONFIG_MACVLAN changes, so the pinned modules stay untouched.
+stamp 'building extra module macvlan'
+sed -i 's/^# CONFIG_MACVLAN is not set$/CONFIG_MACVLAN=m/' .config
+make -s olddefconfig
+grep -qx 'CONFIG_MACVLAN=m' .config
+make -s -j"$jobs" modules_prepare
+make -s -j"$jobs" M=drivers/net modules 2>&1 | grep -v -E 'Module.symvers|no dependencies' || true
+cp drivers/net/macvlan.ko /out/
+echo "BUILT      macvlan.ko $(sha256sum drivers/net/macvlan.ko | cut -d' ' -f1)"
 stamp done

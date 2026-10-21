@@ -54,4 +54,7 @@ fi
 mkdir -p "$dest"
 cp "$work/zstd_compress.ko" "$work/btrfs.ko" "$work/fuse.ko" "$dest/"
 (cd "$dest" && shasum -a 256 btrfs.ko fuse.ko zstd_compress.ko > SHA256SUMS)
-echo "prebuilt modules updated in $dest"
+mkdir -p "$dest/extra"
+cp "$work/macvlan.ko" "$dest/extra/"
+(cd "$dest/extra" && shasum -a 256 macvlan.ko > SHA256SUMS)
+echo "prebuilt modules updated in $dest (extra/macvlan.ko for extras/unas-apps)"

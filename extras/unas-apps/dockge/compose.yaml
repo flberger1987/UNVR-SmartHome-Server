@@ -1,0 +1,16 @@
+# Dockge, the web UI for the app stack (http://<UNAS-IP>:5001). Kept outside the
+# stacks directory so stopping a stack in Dockge never stops Dockge itself.
+name: dockge
+services:
+  dockge:
+    image: louislam/dockge:1
+    container_name: dockge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOCKGE_STACKS_DIR: ${APPS_ROOT:?set in .env}/stacks
+    volumes:
+      - /run/unas-docker.sock:/var/run/docker.sock
+      - ${APPS_ROOT}/dockge:/app/data
+      # Dockge needs the stacks directory at the same path as on the host
+      - ${APPS_ROOT}/stacks:${APPS_ROOT}/stacks

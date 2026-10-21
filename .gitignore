@@ -3,3 +3,5 @@
 cache/firmware/
 *.part
 .DS_Store
+cache/unas-apps/
+extras/unas-apps/.env
