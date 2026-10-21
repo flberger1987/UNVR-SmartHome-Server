@@ -25,6 +25,10 @@ services:
     networks:
       lan:
         ipv4_address: ${PROTECT_IP:?set in .env}
+        # UniFi OS only counts the UNVR port names (enp0s1 RJ45, enp0s2 SFP+)
+        # as a physical link; with eth0 it reports "no internet"
+        driver_opts:
+          com.docker.network.endpoint.ifname: enp0s1
     mac_address: ${PROTECT_MAC:-02:42:c0:a8:01:05}
     privileged: false
     cap_add: [SYS_ADMIN, NET_ADMIN, NET_RAW, SYS_RESOURCE, SYS_PTRACE, SYS_NICE]
