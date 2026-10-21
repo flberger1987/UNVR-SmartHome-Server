@@ -32,11 +32,11 @@ services:
     cgroup: host
     stop_signal: SIGRTMIN+3
     stop_grace_period: 60s
-    tmpfs:
+    tmpfs:   # with any option set, Docker no longer defaults to mode 1777
       - /run
       - /run/lock
-      - /tmp:exec
-      - /var/opt/unifi-protect/tmp
+      - /tmp:exec,mode=1777
+      - /var/opt/unifi-protect/tmp:mode=1777
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - ${PROTECT_ROOT:?set in .env}/data:/data

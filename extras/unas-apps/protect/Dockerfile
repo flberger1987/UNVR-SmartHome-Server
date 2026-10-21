@@ -15,7 +15,7 @@ RUN set -e; \
     for unit in \
         uscsi-reset-wipe.service uscsi-disk-ready.service uscsi-rescan.service \
         usd.service usdbd.service ustated.service uhwd.service \
-        rpsd.service sfpd.service lm-sensors.service uled-bootup-check.service \
+        rpsd.service sfpd.service lm-sensors.service uled-bootup-check.service ubnd.service \
         bluetooth-controller@hci0.service ble-http-transport.service \
         systemd-networkd.service systemd-networkd.socket networkd-dispatcher.service \
         systemd-networkd-fallbacker@enp0s1.service systemd-networkd-fallbacker@enp0s2.service \
