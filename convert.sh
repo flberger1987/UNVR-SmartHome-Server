@@ -65,6 +65,7 @@ controller_ip=
 controller_site=
 controller_client_mac=
 controller_cleanup_mode=unresolved
+skip_controller_cleanup=false
 unas_firmware=
 unvr5_firmware=
 unas5_firmware=
@@ -129,7 +130,7 @@ setup_checkpoint_rows=0
 usage() {
     cat <<'EOF'
 Usage:
-  convert.sh [install] [--ip IPv4] [--controller-ip IPv4] [firmware options] [--dry-run]
+  convert.sh [install] [--ip IPv4] [--controller-ip IPv4 | --skip-controller-cleanup] [firmware options] [--dry-run]
   convert.sh setup-only [--ip IPv4]
   convert.sh status [--ip IPv4]
   convert.sh disarm [--ip IPv4]
@@ -151,6 +152,8 @@ Manager may retain the now-empty site shell until Ubiquiti permits its removal;
 that shell can instead be reused when adopting the converted UNAS. The Network
 site itself and every other client remain untouched. The controller is detected
 from the UNVR gateway; --controller-ip overrides that address when necessary.
+--skip-controller-cleanup skips controller discovery and the stale-client
+cleanup entirely, for networks without a UniFi OS console running Network.
 Declining the confirmation exits without resetting or converting the console.
 
 Authentication and privacy:
@@ -910,6 +913,7 @@ parse_args() {
         case "$1" in
             --ip) [[ $# -ge 2 ]] || die '--ip requires a value'; unvr_ip=$2; shift 2 ;;
             --controller-ip) [[ $# -ge 2 ]] || die '--controller-ip requires a value'; controller_ip=$2; shift 2 ;;
+            --skip-controller-cleanup) skip_controller_cleanup=true; shift ;;
             --unas-firmware) die 'use --unas-5-firmware with the exact UNAS Pro 5.1.33 image' ;;
             --unvr-5-firmware) [[ $# -ge 2 ]] || die '--unvr-5-firmware requires a file'; unvr5_firmware=$2; shift 2 ;;
             --unas-5-firmware) [[ $# -ge 2 ]] || die '--unas-5-firmware requires a file'; unas5_firmware=$2; shift 2 ;;
@@ -920,6 +924,8 @@ parse_args() {
     done
     [[ "$command" == install || ( -z "$unas_firmware" && -z "$unvr5_firmware" && -z "$unas5_firmware" ) ]] || die 'firmware file options are only valid with install'
     [[ "$command" == install || -z "$controller_ip" ]] || die '--controller-ip is only valid with install'
+    [[ "$command" == install || "$skip_controller_cleanup" == false ]] || die '--skip-controller-cleanup is only valid with install'
+    [[ -z "$controller_ip" || "$skip_controller_cleanup" == false ]] || die '--controller-ip and --skip-controller-cleanup are mutually exclusive'
     [[ "$command" == install || "$dry_run" == false ]] || die '--dry-run is only valid with install'
 }
 
@@ -3653,6 +3659,11 @@ wait_for_reboot() {
 prepare_original_controller_cleanup() {
     local association gateway controller_system status sites site endpoint matched=false
     local matching_site_count=0 matched_site= deadline authenticated_again=false
+    if [[ "$skip_controller_cleanup" == true ]]; then
+        controller_cleanup_mode=unavailable
+        log 'Skipped optional Network controller discovery because --skip-controller-cleanup was given.'
+        return
+    fi
     capture_remote_phase 'Saved the original UniFi Network attachment' \
         factory-network-association "$unvr_ip"
     association=$captured_output
