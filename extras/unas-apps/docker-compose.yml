@@ -13,14 +13,11 @@
 name: unas-apps
 
 networks:
+  # macvlan on the LAN port, created by install-on-unas.sh from LAN_* in .env.
+  # External, so stopping this stack never takes Dockge's network away.
   lan:
-    driver: macvlan
-    driver_opts:
-      parent: ${LAN_PARENT:-enp0s1}
-    ipam:
-      config:
-        - subnet: ${LAN_SUBNET:?set in .env}
-          gateway: ${LAN_GATEWAY:?set in .env}
+    external: true
+    name: unas-lan
 
 services:
   unifi-network-application:

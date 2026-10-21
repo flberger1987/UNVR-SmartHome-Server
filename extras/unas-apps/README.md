@@ -8,7 +8,7 @@ the converted UNAS, each service on its own LAN address. Verified on
 | --- | --- | --- |
 | UniFi Network 10.6.106 | `https://<UNIFI_IP>:8443` | MongoDB 4.4.18 shares its network namespace (127.0.0.1 only) |
 | LoxBerry 3.0.1.3 | `http://<LOXBERRY_IP>/` | default login `loxberry`/`loxberry`, change it |
-| Dockge | `http://<UNAS-IP>:5001` | manages the `unas-apps` stack |
+| Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` stack |
 
 ## Quick start (from the Mac)
 

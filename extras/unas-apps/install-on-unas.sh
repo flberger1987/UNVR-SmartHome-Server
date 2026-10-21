@@ -132,7 +132,9 @@ if [ ! -f "$STACK/.env" ]; then
     chmod 600 "$STACK/.env"
     echo "created $STACK/.env (edit the LAN values before --up)"
 fi
-printf 'APPS_ROOT=%s/data\n' "$APPS" > "$APPS/dockge/.env"
+envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
+grep -q '^DOCKGE_IP=' "$STACK/.env" || grep -E '^DOCKGE_(IP|MAC)=' "$STACK/env.example" >> "$STACK/.env"
+printf 'APPS_ROOT=%s/data\nDOCKGE_IP=%s\nDOCKGE_MAC=%s\n' "$APPS" "$(envget DOCKGE_IP)" "$(envget DOCKGE_MAC)" > "$APPS/dockge/.env"
 
 # Docker's embedded DNS needs iptables; give the containers the LAN DNS directly.
 dns=$(sed -n 's/^LAN_DNS=//p' "$STACK/.env" | tr -d '"'"'"'')
@@ -157,5 +159,19 @@ if [[ "$images" == true ]]; then
     docker save $list | remote 'docker load'
 fi
 if [[ "$up" == true ]]; then
-    remote "cd '$dockge' && docker compose up -d && cd '$stack' && docker compose up -d && docker compose ps"
+    # (Re)create the shared macvlan network from LAN_* in .env, then start both stacks.
+    remote "STACK='$stack' DOCKGE='$dockge' bash -s" <<'EOF'
+set -euo pipefail
+envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
+(cd "$DOCKGE" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
+(cd "$STACK" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
+docker network rm unas-lan unas-apps_lan >/dev/null 2>&1 || true   # unas-apps_lan: older layout
+docker network create -d macvlan --subnet "$(envget LAN_SUBNET)" --gateway "$(envget LAN_GATEWAY)" \
+    -o parent="$(envget LAN_PARENT)" unas-lan >/dev/null
+(cd "$DOCKGE" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
+(cd "$STACK" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
+docker ps --format '{{.Names}}' | while read -r c; do
+    printf '%-27s %s\n' "$c" "$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")"
+done
+EOF
 fi

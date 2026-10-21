@@ -1,12 +1,22 @@
-# Dockge, the web UI for the app stack (http://<UNAS-IP>:5001). Kept outside the
+# Dockge, the web UI for the app stack (http://<DOCKGE_IP>:5001). Kept outside the
 # stacks directory so stopping a stack in Dockge never stops Dockge itself.
+# .env is written by install-on-unas.sh from the app stack's .env.
 name: dockge
+
+networks:
+  lan:
+    external: true
+    name: unas-lan
+
 services:
   dockge:
     image: louislam/dockge:1
     container_name: dockge
     restart: unless-stopped
-    network_mode: host
+    networks:
+      lan:
+        ipv4_address: ${DOCKGE_IP:?set in .env}
+    mac_address: ${DOCKGE_MAC:-02:42:c0:a8:01:04}
     environment:
       DOCKGE_STACKS_DIR: ${APPS_ROOT:?set in .env}/stacks
     volumes:
@@ -14,3 +24,4 @@ services:
       - ${APPS_ROOT}/dockge:/app/data
       # Dockge needs the stacks directory at the same path as on the host
       - ${APPS_ROOT}/stacks:${APPS_ROOT}/stacks
+      - ${APPS_ROOT}/stacks/unas-apps/resolv.conf:/etc/resolv.conf:ro
