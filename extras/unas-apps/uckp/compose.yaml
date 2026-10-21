@@ -1,0 +1,48 @@
+# UniFi OS (Cloud Key Gen2 Plus userland: Network + Protect and the other
+# UniFi OS apps) on its own LAN address. Not privileged, no device access,
+# CAP_MKNOD dropped; systemd gets the host cgroup tree (crun runs without
+# cgroup management on this kernel). See ../README.md.
+#
+# UCKP_ROOT is a Btrfs subvolume without copy-on-write (never part of a pool
+# snapshot) with data/, persistent/ and srv.img, a fixed-size ext4 volume that
+# unas-docker loop-mounts on srv/ (UniFi OS sees it as the Cloud Key's HDD).
+name: uckp
+
+networks:
+  lan:
+    external: true
+    name: unas-lan
+
+services:
+  unifi-os:
+    image: uckp-os:6.0.11
+    container_name: unifi-os
+    hostname: unifi-os
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${UCKP_IP:?set in .env}
+    mac_address: ${UCKP_MAC:-02:42:c0:a8:01:06}
+    privileged: false
+    cap_add: [SYS_ADMIN, NET_ADMIN, NET_RAW, SYS_RESOURCE, SYS_PTRACE, SYS_NICE]
+    cap_drop: [MKNOD]
+    cgroup: host
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 90s
+    tmpfs:   # with any option set, Docker no longer defaults to mode 1777
+      - /run
+      - /run/lock
+      - /tmp:exec,mode=1777
+      - /var/opt/unifi-protect/tmp:mode=1777
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ${UCKP_ROOT:?set in .env}/data:/data
+      - ${UCKP_ROOT}/persistent:/persistent
+      - ${UCKP_ROOT}/srv:/srv
+      # identity of its own (UCKP board data, serial/MACs from UCKP_MAC)
+      - ${UCKP_ROOT}/system.info:/proc/ubnthal/system.info:ro
+      - ${UCKP_ROOT}/board.info:/etc/board.info:ro
+      # the host's /proc/mtd lists the UNVR flash; bootup-invoker would try to
+      # mount its config partition. An empty table hides it.
+      - ${UCKP_ROOT}/mtd:/proc/mtd:ro
+      - ../unas-apps/resolv.conf:/etc/resolv.conf:ro
