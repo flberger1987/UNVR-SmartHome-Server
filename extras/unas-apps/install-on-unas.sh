@@ -90,6 +90,13 @@ set -eu
 for _ in \$(seq 1 120); do mountpoint -q '${APPS%/.unas-apps}' && break; sleep 5; done
 mountpoint -q '${APPS%/.unas-apps}' || { echo 'storage pool not mounted' >&2; exit 1; }
 grep -q '^macvlan ' /proc/modules || insmod '$APPS/modules/macvlan.ko'
+# fixed-size app volumes (e.g. Protect): <dir>/srv.img loop-mounted on <dir>/srv
+for img in '$APPS'/*/srv.img; do
+    [ -f "\$img" ] || continue
+    mnt="\$(dirname "\$img")/srv"
+    mkdir -p "\$mnt"
+    mountpoint -q "\$mnt" || mount -o loop,noatime "\$img" "\$mnt"
+done
 export PATH='$APPS/docker/bin':\$PATH
 exec dockerd --config-file '$APPS/docker/daemon.json'
 SH
@@ -113,6 +120,49 @@ LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
+UNIT
+
+# Containers that join another container's network (network_mode: service:x)
+# are orphaned when x restarts on its own (e.g. Docker's restart policy after a
+# crash); compose only handles restarts it performs itself. Check every minute.
+cat > /usr/local/sbin/unas-netns-guard <<'SH'
+#!/bin/bash
+# Restart containers whose shared network namespace no longer matches its owner.
+export PATH=/usr/local/bin:$PATH
+docker ps --format '{{.Names}}' | while read -r name; do
+    mode=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$name" 2>/dev/null)
+    [[ "$mode" == container:* ]] || continue
+    owner=${mode#container:}
+    pid=$(docker inspect -f '{{.State.Pid}}' "$name")
+    opid=$(docker inspect -f '{{if .State.Running}}{{.State.Pid}}{{end}}' "$owner" 2>/dev/null)
+    [[ -n "$opid" && "$pid" != 0 ]] || continue
+    if [[ "$(readlink /proc/$pid/ns/net)" != "$(readlink /proc/$opid/ns/net)" ]]; then
+        logger -t unas-netns-guard "restarting $name: network namespace of $(docker inspect -f '{{.Name}}' "$owner") changed"
+        docker restart -t 60 "$name" >/dev/null
+    fi
+done
+SH
+chmod 755 /usr/local/sbin/unas-netns-guard
+cat > /etc/systemd/system/unas-netns-guard.service <<UNIT
+[Unit]
+Description=Re-join containers whose shared network namespace owner restarted
+After=unas-docker.service
+Requires=unas-docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/unas-netns-guard
+UNIT
+cat > /etc/systemd/system/unas-netns-guard.timer <<UNIT
+[Unit]
+Description=Check shared container network namespaces every minute
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
 UNIT
 
 cat > /usr/local/bin/docker <<SH
@@ -149,6 +199,7 @@ if [ -f /run/unas-docker.pid ] && ! systemctl is-active --quiet unas-docker; the
 fi
 systemctl daemon-reload
 systemctl enable --now unas-docker >/dev/null 2>&1
+systemctl enable --now unas-netns-guard.timer >/dev/null 2>&1
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
 docker info --format 'docker {{.ServerVersion}}, runtime {{.DefaultRuntime}}, storage {{.Driver}}'
 EOF
@@ -163,6 +214,8 @@ if [[ "$up" == true ]]; then
     remote "STACK='$stack' DOCKGE='$dockge' bash -s" <<'EOF'
 set -euo pipefail
 envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
+PROTECT="${STACK%/unas-apps}/protect"   # optional, from protect/install-protect.sh
+[ -f "$PROTECT/.env" ] && { (cd "$PROTECT" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true; }
 (cd "$DOCKGE" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
 (cd "$STACK" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
 docker network rm unas-lan unas-apps_lan >/dev/null 2>&1 || true   # unas-apps_lan: older layout
@@ -170,6 +223,7 @@ docker network create -d macvlan --subnet "$(envget LAN_SUBNET)" --gateway "$(en
     -o parent="$(envget LAN_PARENT)" unas-lan >/dev/null
 (cd "$DOCKGE" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
 (cd "$STACK" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
+[ -f "$PROTECT/.env" ] && { (cd "$PROTECT" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1; }
 docker ps --format '{{.Names}}' | while read -r c; do
     printf '%-27s %s\n' "$c" "$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")"
 done

@@ -1,0 +1,41 @@
+#!/bin/bash
+# Stand-in for ustorage: the storage daemon (usd) is masked, so report one
+# healthy disk the size of /srv (the fixed-size Protect volume). Format after
+# github.com/snowsnoot/unifi-unvr-arm64.
+disk=/srv
+sbytes=$(df -B1 --output=size "$disk" | awk 'NR == 2 {print $1}')
+sused=$(df -B1 --output=used "$disk" | awk 'NR == 2 {print $1}')
+
+case "${1:-}" in
+    disk)
+        cat <<EOT
+[
+    {
+        "action": "none", "ata": "ATA8-ACS", "bad_sector": 0, "estimate": null,
+        "firmware": "UNAS", "healthy": "good", "life_span": null,
+        "model": "UniFi Protect volume on UNAS pool", "poweronhrs": 1,
+        "progress": null, "reason": null, "rpm": 7200, "sata": "SATA 3.3",
+        "serial": "UNASPROTECT0001", "size": ${sbytes}, "slot": 1,
+        "state": "normal", "temperature": 40, "threshold": 10, "type": "HDD"
+    }
+]
+EOT
+        ;;
+    space)
+        cat <<EOT
+[
+    {
+        "action": "none", "device": "sdb", "estimate": 0, "health": "health",
+        "progress": null, "reasons": [], "space_type": "primary",
+        "total_bytes": ${sbytes}, "used_bytes": ${sused}
+    }
+]
+EOT
+        ;;
+    config)
+        echo '{ "hotspare": false, "raid": "raid0" }'
+        ;;
+    *)
+        echo '[]'
+        ;;
+esac

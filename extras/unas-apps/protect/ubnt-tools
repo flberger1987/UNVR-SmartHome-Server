@@ -1,0 +1,10 @@
+#!/bin/sh
+# The real tool reads the board identity from the UNVR EEPROM (mtd), which the
+# container cannot see. 'id' answers from /etc/board.info (mounted by compose:
+# UNVR board data with a serial and UUID of the container's own); everything
+# else goes to the original.
+if [ "${1:-}" = id ] && [ -f /etc/board.info ]; then
+    cat /etc/board.info
+    exit 0
+fi
+exec /sbin/ubnt-tools.real "$@"

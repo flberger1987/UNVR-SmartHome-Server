@@ -19,6 +19,12 @@ RUN set -eu; \
     fi; \
     for unit in systemd-timesyncd ntp ntpsec chrony ${LB_MASK_EXTRA}; do \
         systemctl mask "$unit" >/dev/null 2>&1 || true; \
-    done
+    done; \
+    # SSH for the loxberry user with keys only (the default password is public);
+    # keys go to /opt/loxberry/.ssh/authorized_keys, which lives in the volume.
+    mkdir -p /etc/ssh/sshd_config.d; \
+    printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers loxberry\n' \
+        > /etc/ssh/sshd_config.d/10-key-only.conf; \
+    systemctl enable ssh >/dev/null 2>&1 || true
 
 EXPOSE 80 443 1883

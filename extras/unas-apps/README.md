@@ -1,14 +1,19 @@
 # Apps on a converted UNVR
 
-UniFi Network Application (with MongoDB), LoxBerry and Dockge as containers on
-the converted UNAS, each service on its own LAN address. Verified on
-2026-10-21 on the four-bay UNVR from the main README.
+UniFi Network Application (with MongoDB), LoxBerry, Dockge and optionally
+UniFi Protect as containers on the converted UNAS, each service on its own LAN
+address. Verified on 2026-10-21 on the four-bay UNVR from the main README.
 
 | Service | Address | Notes |
 | --- | --- | --- |
 | UniFi Network 10.6.106 | `https://<UNIFI_IP>:8443` | MongoDB 4.4.18 shares its network namespace (127.0.0.1 only) |
 | LoxBerry 3.0.1.3 | `http://<LOXBERRY_IP>/` | default login `loxberry`/`loxberry`, change it |
-| Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` stack |
+| Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` and `protect` stacks |
+| UniFi Protect (UNVR 5.1.33) | `https://<PROTECT_IP>/` | optional, see [UniFi Protect](#unifi-protect) |
+
+LoxBerry also answers SSH on port 22 for the user `loxberry`, keys only: put
+public keys into `/opt/loxberry/.ssh/authorized_keys` (in the `loxberry`
+volume, survives image updates).
 
 ## Quick start (from the Mac)
 
@@ -57,6 +62,56 @@ Other details:
   Debian 13.
 - The UNAS itself cannot reach macvlan addresses (macvlan isolates its parent);
   every other device on the LAN can.
+- The UniFi controller joins MongoDB's network namespace
+  (`network_mode: service:unifi-db`), so the database, which rarely restarts,
+  owns the LAN address. If Docker's restart policy restarts the owner on its
+  own, the joined container keeps a dead namespace; `unas-netns-guard.timer`
+  checks every minute and restarts such containers.
+
+## Restoring a controller backup
+
+A backup from a UniFi OS console (UDM, Cloud Gateway, Cloud Key Gen2+,
+UniFi OS Server) restores sites and devices, but not the admins: those live in
+UniFi OS, and the standalone server has no UI account sign-in. Afterwards no
+login works. Create a local super admin (password typed in the terminal,
+stored as SHA-512 crypt hash):
+
+```bash
+extras/unas-apps/unifi-add-admin.sh root@<UNAS-IP>
+```
+
+The same script resets the password of an existing admin.
+
+## UniFi Protect
+
+Protect runs from the box's own UNVR 5.1.33 userland (UniFi OS + Protect,
+booted by systemd) in a container on its own address, next to UniFi Drive:
+
+```bash
+extras/unas-apps/protect/install-protect.sh root@<UNAS-IP> --ip <PROTECT_IP> --size 2T --up
+```
+
+Everything is built on the UNAS from `/boot/firmware/rootfs`; no firmware
+passes through the Mac or Git. The script
+
+- creates `<pool>/.unas-apps/protect` as a Btrfs subvolume without
+  copy-on-write, so recordings are never part of a pool snapshot,
+- puts a fixed-size ext4 image (`srv.img`, `--size`) into it, which
+  `unas-docker` loop-mounts on `srv/` before Docker starts; Protect sees that
+  size as its disk and runs its retention against it,
+- writes an identity of its own (`system.info`, `board.info`: UNVR board data,
+  serial and MACs derived from `--mac`, new UUID), so the container never
+  presents the box's real serial,
+- builds `unvr-protect:5.1.33` (`protect/Dockerfile`) and the `protect` stack.
+
+Safety: the container is not privileged, has no device nodes and drops
+`CAP_MKNOD`; the UNVR storage daemon, the post-reset disk wipe and all
+hardware, LED, fan and network services are masked in the image. `ustorage`
+is a stand-in that reports the fixed volume as one healthy disk.
+
+Limits: UniFi OS inside stays at 5.1.33 (it is the image); app updates of
+Protect from within its UniFi OS are untested. Storage pages in its UniFi OS
+show the stand-in disk.
 
 ## Moving to another network
 

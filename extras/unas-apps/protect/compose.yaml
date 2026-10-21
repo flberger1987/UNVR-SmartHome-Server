@@ -1,0 +1,47 @@
+# UniFi Protect (UNVR 5.1.33 userland: UniFi OS + Protect) on its own LAN address.
+#
+# Deliberately NOT privileged and without device access: the UNVR userland
+# contains storage tooling that would otherwise see the NAS disks. CAP_MKNOD is
+# dropped so no device node can be created inside either. systemd gets the
+# host cgroup tree (crun runs without cgroup management on this kernel).
+#
+# PROTECT_ROOT is a Btrfs subvolume without copy-on-write (never part of a
+# snapshot) holding data/ and srv.img, a fixed-size ext4 volume that the
+# unas-docker start script loop-mounts on srv/ before Docker starts. Protect
+# sees exactly that size as its disk and runs its retention against it.
+name: protect
+
+networks:
+  lan:
+    external: true
+    name: unas-lan
+
+services:
+  unifi-protect:
+    image: unvr-protect:5.1.33
+    container_name: unifi-protect
+    hostname: unvr-protect
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${PROTECT_IP:?set in .env}
+    mac_address: ${PROTECT_MAC:-02:42:c0:a8:01:05}
+    privileged: false
+    cap_add: [SYS_ADMIN, NET_ADMIN, NET_RAW, SYS_RESOURCE, SYS_PTRACE, SYS_NICE]
+    cap_drop: [MKNOD]
+    cgroup: host
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 60s
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp:exec
+      - /var/opt/unifi-protect/tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ${PROTECT_ROOT:?set in .env}/data:/data
+      - ${PROTECT_ROOT}/srv:/srv
+      # identity of its own (serial/MACs from PROTECT_MAC), see README
+      - ${PROTECT_ROOT}/system.info:/proc/ubnthal/system.info:ro
+      - ${PROTECT_ROOT}/board.info:/etc/board.info:ro
+      - ../unas-apps/resolv.conf:/etc/resolv.conf:ro
