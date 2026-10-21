@@ -1,0 +1,53 @@
+--- a/unvr_unas_remote.sh
++++ b/unvr_unas_remote.sh
+@@ -98,6 +98,15 @@
+ pkg_version() { dpkg-query -W -f='${Version}' "$1" 2>/dev/null || true; }
+ pkg_configured() { [[ "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true)" == 'install ok installed' ]]; }
+ require_eq() { [[ "$1" == "$2" ]] || die "$3"; }
++# Factory recovery kernels seen on four-bay UNVRs. The recovery partition is
++# only read, never written; 99798c... is the 4.1.37-ubnt @ 20201214 build.
++require_known_recovery_kernel() {
++    case "$(sha /dev/mtd5)" in
++        dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9|\
++        99798c2755f72343e75915365f3e9a074379b12b28e058b3c2182af416adcc5c) ;;
++        *) die "$1" ;;
++    esac
++}
+ require_free_bytes() {
+     local path=$1 required=$2 label=$3 available
+     available=$(df -B1 --output=avail "$path" | tail -n1 | tr -d ' ')
+@@ -143,9 +152,7 @@
+             ;;
+         *) die "source U-Boot is not a validated official UNVR version (firmware=$physical_version sha256=$source_uboot)" ;;
+     esac
+-    require_eq "$(sha /dev/mtd5)" \
+-        dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9 \
+-        'source recovery kernel mismatch'
++    require_known_recovery_kernel 'source recovery kernel mismatch'
+ }
+ dump_postgres_database() {
+     local database=$1 destination=$2
+@@ -165,7 +172,7 @@
+     require_eq "$(blockdev --getsize64 /dev/boot)" 31268536320 'internal boot-medium geometry mismatch'
+     assert_mtd_layout
+     require_eq "$(sha /dev/mtd0)" 95ab38b870eb3886f35a6411244f99596d9788e165c84b8ff3b6e522b3d5f2a6 'UNVR 5.1 U-Boot mismatch'
+-    require_eq "$(sha /dev/mtd5)" dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9 'recovery kernel mismatch'
++    require_known_recovery_kernel 'recovery kernel mismatch'
+     require_eq "$(pkg_version unifi-core)" "$EXPECTED_CORE_5_VERSION" 'unifi-core 5.x version mismatch'
+     require_eq "$(pkg_version ustd:arm64)" "$EXPECTED_USTD_5_VERSION" 'ustd 5.x version mismatch'
+     require_eq "$(pkg_version ubntnas)" "$EXPECTED_UBNTNAS_5_VERSION" 'ubntnas 5.x version mismatch'
+--- a/guarded-fwupdate
++++ b/guarded-fwupdate
+@@ -105,7 +105,11 @@
+             esac
+             ;;
+     esac
+-    require_equal "$(sha256 /dev/mtd5)" dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9 "recovery kernel mismatch"
++    case "$(sha256 /dev/mtd5)" in
++        dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9|\
++        99798c2755f72343e75915365f3e9a074379b12b28e058b3c2182af416adcc5c) ;;
++        *) refuse "recovery kernel mismatch" ;;
++    esac
+ }
+ 
+ validate_boot_files() {
