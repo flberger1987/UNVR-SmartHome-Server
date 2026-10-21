@@ -1,5 +1,59 @@
 # UniFi UNVR to UNAS Pro Conversion
 
+> [!NOTE]
+> **About this fork.** This is a fork of
+> [TaimurAyaz/unifi-unvr-to-unas](https://github.com/TaimurAyaz/unifi-unvr-to-unas)
+> with two changes for UNVRs the original converter refuses. Everything below
+> the fork notes is the upstream documentation.
+
+## Fork changes
+
+- **`--skip-controller-cleanup`**: the upstream installer stops before the
+  reset unless it can sign in to a UniFi OS console running Network at the
+  UNVR gateway (or `--controller-ip`). That console is only used for an
+  optional cleanup of the UNVR's stale client record. The flag skips controller
+  discovery and the cleanup, for networks without a UniFi gateway or with a
+  self-hosted Network server.
+- **2020 factory recovery kernel**: upstream accepts a single recovery-kernel
+  hash (`dadcfc…`). Units that still carry the original recovery kernel
+  `4.1.37-ubnt @ 20201214` (`99798c…`) were refused. Both are now accepted. The
+  recovery partition is only read, never written. The change to the embedded
+  helpers is shown in readable form in
+  [`patches/embedded-helpers-recovery-kernel.diff`](patches/embedded-helpers-recovery-kernel.diff).
+
+## UNVR already on UniFi OS 6.x
+
+A UNVR on UniFi OS 6.x keeps the 5.1.33 U-Boot, but the converter only accepts
+that U-Boot on the exact signed 5.1.33 system, so it refuses before the reset.
+Downgrade to 5.1.33 first with Ubiquiti's own updater. The downgrade itself
+keeps the console configuration and does not touch the disks; the conversion
+wipes both later anyway.
+
+1. In **Control Plane → Updates**, clear *Auto-Update* for UniFi OS and every
+   application and apply. Otherwise the console updates itself back overnight.
+2. In **Control Plane → Console**, enable SSH, then on the UNVR as `root`:
+
+   ```bash
+   cd /mnt/.rwfs
+   curl -fL -o UNVR-5.1.33.bin https://fw-download.ubnt.com/data/unifi-nvr/976a-UNVR-5.1.33-84c520f3-fb97-41e0-be2b-b0f89c46c7b8.bin
+   sha256sum UNVR-5.1.33.bin   # must be b170e97f9b7a703947380aed1108221e70ab18074b986906aca9df10891ca1e0
+   /sbin/ubnt-tools fwupdate -dc UNVR-5.1.33.bin   # signature check only, must end with exit code 0
+   /sbin/ubnt-systool fwupdate UNVR-5.1.33.bin     # flashes and reboots
+   ```
+
+3. After the reboot, `cat /usr/lib/version` must print
+   `UNVR4.al324.v5.1.33.44ce47b.260909.0025`. The updater log should show
+   `uboot matched, skip`.
+4. Run the converter as described below, for example
+   `./convert.sh install --ip <UNVR-IP> --skip-controller-cleanup`.
+
+Verified on 2026-10-21 on one four-bay UNVR (6.0.11 → 5.1.33): the downgrade,
+then the converter's read-only pre-reset checks with the patched helpers
+(`detect-baseline`, `factory-reset-preflight`, `assert_base_5_physical` and the
+guarded updater's physical identity check).
+
+---
+
 Follow [@taimurayaz](https://x.com/taimurayaz) on X for follow-up testing and future UniFi projects.
 
 <video controls playsinline muted width="100%" src="https://github.com/user-attachments/assets/763a2fb8-9b94-4ca8-af0a-272e7cc48d6b"></video>
@@ -132,8 +186,8 @@ check and stops before conversion if something is missing.
 In Terminal, run:
 
 ```bash
-git clone https://github.com/TaimurAyaz/unifi-unvr-to-unas.git
-cd unifi-unvr-to-unas
+git clone https://github.com/flberger1987/Unifi-UNVR-UNAS.git
+cd Unifi-UNVR-UNAS
 chmod +x convert.sh
 ```
 
