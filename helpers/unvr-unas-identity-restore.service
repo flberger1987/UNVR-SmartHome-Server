@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore scoped UNAS identity after a stock UNVR firmware update
+After=data.mount local-fs.target
+Before=unifi-core.service ulp-go.service uid-agent.service
+RequiresMountsFor=/data
+ConditionPathExists=/data/unvr-unas-runtime/enabled
+
+[Service]
+Type=oneshot
+ExecStart=/data/unvr-unas-runtime/ensure-unas-identity
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

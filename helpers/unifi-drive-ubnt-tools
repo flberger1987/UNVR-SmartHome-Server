@@ -1,0 +1,24 @@
+#!/bin/sh
+
+# Drive-only identity adapter. The service PATH points at this file before
+# /usr/bin; every ubnt-tools command except the read-only `id` query is passed
+# through unchanged to the stock UNVR executable.
+
+set -eu
+
+readonly real=/data/unvr-unas-runtime/drive-bin/real/ubnt-tools
+
+if [ "$#" -eq 1 ] && [ "$1" = id ]; then
+    output=$("$real" id)
+    [ "$(printf '%s\n' "$output" | grep -c '^board.shortname=')" -eq 1 ]
+    [ "$(printf '%s\n' "$output" | grep -c '^board.sysid=')" -eq 1 ]
+    printf '%s\n' "$output" | awk -F= '
+        $1 == "board.shortname" { print "board.shortname=UNASPRO"; next }
+        $1 == "board.name"      { print "board.name=UniFi Network Attached Storage Pro"; next }
+        $1 == "board.sysid"     { print "board.sysid=0xea51"; next }
+        { print }
+    '
+    exit 0
+fi
+
+exec "$real" "$@"

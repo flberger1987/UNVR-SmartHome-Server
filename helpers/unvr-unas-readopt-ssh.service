@@ -1,0 +1,16 @@
+[Unit]
+Description=Finalize UNAS storage handoff and disable temporary SSH access
+After=data.mount unifi-core.service
+Requires=unifi-core.service
+RequiresMountsFor=/data
+ConditionPathExists=/data/unvr-unas-runtime/pending-logical-readoption
+
+[Service]
+Type=simple
+ExecStart=/data/unvr-unas-runtime/readopt-ssh-restorer
+Restart=on-failure
+RestartSec=30
+RuntimeMaxSec=90min
+
+[Install]
+WantedBy=multi-user.target

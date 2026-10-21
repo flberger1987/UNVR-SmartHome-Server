@@ -1,0 +1,18 @@
+[Unit]
+Description=Validate the pinned UNAS runtime after reboot
+After=network-online.target unifi-core.service unvr-unas-identity-restore.service
+Wants=network-online.target
+Requires=unvr-unas-identity-restore.service
+ConditionPathExists=/data/unvr-unas-runtime/enabled
+StartLimitIntervalSec=1800
+StartLimitBurst=12
+
+[Service]
+Type=simple
+ExecStart=/data/unvr-unas-runtime/restore-drive-after-base-update
+Restart=on-failure
+RestartSec=30
+RuntimeMaxSec=2400
+
+[Install]
+WantedBy=multi-user.target

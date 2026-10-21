@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# Version-gated launcher retained under /data across UniFi OS upgrades. Drive
+# 1.19.1 needs the proven legacy-storage compatibility executable on the
+# 4.1.22 baseline. Profiled Drive 4.x releases run their official binaries
+# directly on the matched 5.1.x base. Unknown versions are refused.
+
+set -eu
+
+legacy=/data/unvr-unas-runtime/unifi-drive-legacy-storage-compat
+official=/usr/share/unifi-drive/bin/unifi-drive
+version=$(/usr/bin/dpkg-query -W -f='${Version}' unifi-drive 2>/dev/null || true)
+
+sha256() {
+    /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'
+}
+
+case "$version" in
+    1.19.1)
+        expected=1625e66e6f66bae32e1348ec3a1be33761719a2b4bc500ac6cd8ca1bdf934087
+        test -x "$legacy"
+        test "$(sha256 "$legacy")" = "$expected"
+        exec "$legacy" "$@"
+        ;;
+    4.3.10)
+        expected=b26ed8c0e33bd44a6daf83b2b123513c231665161a9a2b2a70bd852bf5bd4b0a
+        test -x "$official"
+        test "$(sha256 "$official")" = "$expected"
+        exec "$official" "$@"
+        ;;
+    4.4.9)
+        expected=1a1265721040fa1c39ec6d6c121eff14db5ae4d8d26491888d0cc017839f3142
+        test -x "$official"
+        test "$(sha256 "$official")" = "$expected"
+        exec "$official" "$@"
+        ;;
+    3.1.8)
+        expected=dd6f32bbf52369ebad2821dabe02a400c26f37d3981b2038d5d11fbd2e283161
+        test -x "$official"
+        test "$(sha256 "$official")" = "$expected"
+        exec "$official" "$@"
+        ;;
+    *)
+        printf 'unvr-unas: Drive version is not compatibility-profiled: %s\n' "$version" >&2
+        exit 78
+        ;;
+esac

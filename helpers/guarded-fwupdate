@@ -1,0 +1,387 @@
+#!/bin/bash
+# Fixed-release safety boundary. Only read-only profile validation is allowed.
+# Firmware arguments are always refused, including when stale arm files exist.
+set -Eeuo pipefail
+export LC_ALL=C
+umask 077
+readonly runtime=/data/unvr-unas-runtime
+readonly log_file=$runtime/guarded-fwupdate.log
+readonly physical_5_1_33=UNVR4.al324.v5.1.33.44ce47b.260909.0025
+readonly kernel_mount=/mnt/unvr-unas-update-check
+readonly apt_valid_until_policy=/etc/apt/apt.conf.d/10validuntil
+readonly apt_valid_until_policy_sha256=92dd8add3f0093b490c4d4c57f6a2bc7afc1a7519b078b8034db2df5add7f458
+kernel_mounted=false
+
+sha256() { sha256sum "$1" | awk '{print $1}'; }
+
+normalized_fdt_sha256() {
+    python3 -c 'import sys; data=sys.stdin.buffer.read(); assert data.count(b"reboot=warm") + data.count(b"reboot=cold") == 1; sys.stdout.buffer.write(data.replace(b"reboot=warm", b"reboot=cold"))' \
+        < /sys/firmware/fdt | sha256sum | awk '{print $1}'
+}
+
+log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$log_file"; }
+
+refuse() {
+    log "REFUSED: $*"
+    printf 'Guarded UNVR-to-UNAS updater refused: %s\n' "$*" >&2
+    exit 64
+}
+
+pkg_version() { dpkg-query -W -f='${Version}' "$1" 2>/dev/null || true; }
+
+require_equal() { [[ "$1" == "$2" ]] || refuse "$3"; }
+
+require_file_hash() {
+    local file=$1 expected=$2 label=$3
+    [[ -f "$file" && ! -L "$file" ]] || refuse "$label is missing or unsafe"
+    require_equal "$(sha256 "$file")" "$expected" "$label hash mismatch"
+}
+
+require_file_hash_one_of() {
+    local file=$1 label=$2 actual allowed
+    shift 2
+    [[ -f "$file" && ! -L "$file" ]] || refuse "$label is missing or unsafe"
+    actual=$(sha256 "$file")
+    for allowed in "$@"; do
+        [[ "$actual" == "$allowed" ]] && return 0
+    done
+    refuse "$label hash mismatch"
+}
+
+validate_drive_scoped_system_info() {
+    local source=/proc/ubnthal/system.info target=$runtime/drive-system.info
+    [[ -f "$source" ]] || refuse "physical system information is unavailable"
+    [[ -f "$target" && ! -L "$target" ]] || refuse "Drive-scoped system information is missing or unsafe"
+    [[ "$(sed -n 's/^shortname=//p' "$source")" == UNVR4 ]] \
+        || refuse "physical system is not the validated four-bay UNVR"
+    cmp -s "$target" <(awk -F= '
+        $1 == "shortname" { print "shortname=UNASPRO"; next }
+        $1 == "name"      { print "name=UniFi Network Attached Storage Pro"; next }
+        { print }
+    ' "$source") || refuse "Drive-scoped system information differs from the physical source overlay"
+}
+
+cleanup() {
+    if [[ "$kernel_mounted" == true ]] && mountpoint -q "$kernel_mount"; then
+        umount "$kernel_mount" || true
+    fi
+}
+
+validate_physical_identity() {
+    local uboot_hash index expected_size expected_name physical_version
+    require_equal "$(uname -m)" aarch64 "architecture mismatch"
+    require_equal "$(sed -n 's/^shortname=//p' /proc/ubnthal/system.info | head -n1)" UNVR4 "physical console is not the four-bay UNVR"
+    require_equal "$(blockdev --getsize64 /dev/boot)" 31268536320 "internal boot-medium geometry mismatch"
+    while IFS='|' read -r index expected_size expected_name; do
+        [[ -r "/sys/class/mtd/mtd$index/size" && -r "/sys/class/mtd/mtd$index/name" && -r "/dev/mtd$index" ]] \
+            || refuse "required MTD partition is missing: mtd$index"
+        require_equal "$(cat "/sys/class/mtd/mtd$index/size")" "$expected_size" "MTD partition size mismatch: mtd$index"
+        require_equal "$(cat "/sys/class/mtd/mtd$index/name")" "$expected_name" "MTD partition name mismatch: mtd$index"
+    done <<'EOF'
+0|1835008|u-boot
+1|65536|u-boot env
+2|65536|u-boot env redundant
+3|65536|Factory
+4|65536|EEPROM
+5|16777216|recovery kernel
+6|14680064|config
+EOF
+    uboot_hash=$(sha256 /dev/mtd0)
+    physical_version=$(cat /usr/lib/version 2>/dev/null || true)
+    case "$physical_version" in
+        "$physical_5_1_33")
+            require_equal "$uboot_hash" 95ab38b870eb3886f35a6411244f99596d9788e165c84b8ff3b6e522b3d5f2a6 \
+                "signed UNVR 5.1.33 U-Boot MTD mismatch"
+            require_equal "$(sha256 /dev/mtd1)" de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31 \
+                "UNVR 5.1.33 primary U-Boot environment is not in the signed updater reset state"
+            require_equal "$(sha256 /dev/mtd2)" de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31 \
+                "UNVR 5.1.33 redundant U-Boot environment is not in the signed updater reset state"
+            ;;
+        *)
+            case "$uboot_hash" in
+                6006a0aae68b096e44973eae9b57e44add48d894d06c95c4702c21e0b0dfb762|\
+                b8e936e52355819bb113c165f3b29e635ac9d821d03e7921159aad43690e719f) ;;
+                *) refuse "U-Boot MTD mismatch" ;;
+            esac
+            ;;
+    esac
+    case "$(sha256 /dev/mtd5)" in
+        dadcfc457787621b42e7eeb9266810a5e8ae1c329d4402d2793fb508943794e9|\
+        99798c2755f72343e75915365f3e9a074379b12b28e058b3c2182af416adcc5c) ;;
+        *) refuse "recovery kernel mismatch" ;;
+    esac
+}
+
+validate_boot_files() {
+    local active_root=$1 backup_root=$2 config_hash=$3 active_kernel=$4 backup_kernel=$5
+    require_equal "$(sha256 /boot/firmware/rootfs)" "$active_root" "active rootfs mismatch"
+    if [[ "$backup_root" == RECORDED ]]; then
+        local recorded_backup_root recorded_backup_version
+        [[ -f "$runtime/recovery/rootfs-source.bkp.sha256" ]] || refuse "recorded source-rootfs hash is missing"
+        [[ -f "$runtime/recovery/rootfs-source.bkp.version" ]] || refuse "recorded source-rootfs version is missing"
+        recorded_backup_root=$(cat "$runtime/recovery/rootfs-source.bkp.sha256")
+        recorded_backup_version=$(cat "$runtime/recovery/rootfs-source.bkp.version")
+        [[ "$recorded_backup_root" =~ ^[0-9a-f]{64}$ ]] || refuse "recorded source-rootfs hash is malformed"
+        [[ "$recorded_backup_version" == UNVR4.al324.v* ]] || refuse "recorded source-rootfs version is not a UNVR image"
+        require_equal "$(sha256 /boot/firmware/rootfs.bkp)" "$recorded_backup_root" "recorded fallback rootfs mismatch"
+        require_equal "$(head -c 4 /boot/firmware/rootfs.bkp | od -An -tx1 | tr -d ' \n')" 68737173 "recorded fallback rootfs is not SquashFS"
+    else
+        require_equal "$(sha256 /boot/firmware/rootfs.bkp)" "$backup_root" "fallback rootfs mismatch"
+    fi
+    require_equal "$(zcat /proc/config.gz | sha256sum | awk '{print $1}')" "$config_hash" "kernel configuration mismatch"
+    require_equal "$(normalized_fdt_sha256)" 508b402774e14e66d3a692f3593ad804f9425eece7bd287617189d19c281f222 "device tree mismatch after reboot-mode normalization"
+    install -d -m 0700 "$kernel_mount"
+    ! mountpoint -q "$kernel_mount" || refuse "kernel validation mount point is already in use"
+    mount -o ro /dev/boot1 "$kernel_mount"
+    kernel_mounted=true
+    require_file_hash "$kernel_mount/uImage" "$active_kernel" "active UNVR kernel image"
+    if [[ "$backup_kernel" == RECORDED ]]; then
+        local recorded_backup_hash
+        [[ -f "$runtime/recovery/uImage-source.bkp.sha256" ]] || refuse "recorded source-kernel hash is missing"
+        recorded_backup_hash=$(cat "$runtime/recovery/uImage-source.bkp.sha256")
+        [[ "$recorded_backup_hash" =~ ^[0-9a-f]{64}$ ]] || refuse "recorded source-kernel hash is malformed"
+        require_file_hash "$kernel_mount/uImage.bkp" "$recorded_backup_hash" "stock updater recorded source-kernel backup"
+        require_file_hash "$runtime/recovery/uImage-source.bkp" "$recorded_backup_hash" "offline recorded source-kernel backup"
+    elif [[ "$backup_kernel" != NONE ]]; then
+        require_file_hash "$kernel_mount/uImage.bkp" "$backup_kernel" "stock updater kernel backup"
+    fi
+    require_file_hash "$runtime/recovery/uImage-5.1.33" 158688310a8fbef461c2f72a1d05326a246bcfa8525e3dc77177454853c462da "offline signed baseline kernel copy"
+    umount "$kernel_mount"
+    kernel_mounted=false
+}
+
+validate_restore_payload() {
+    require_file_hash "$apt_valid_until_policy" "$apt_valid_until_policy_sha256" "stock UNAS APT validity policy"
+    require_equal "$(stat -c '%U:%G:%a' "$apt_valid_until_policy")" root:root:644 "stock UNAS APT validity policy metadata mismatch"
+    require_file_hash "$runtime/ensure-unas-identity" 4b5ae523ef7a73c78cff99c7584b4871f9f84fe88c51d4dfa1b8243d84b8782a "identity restore script"
+    require_file_hash "$runtime/restore-drive-after-base-update" 255c853f34d60b8ea142b7131c18a2e074fd6a7f00f89e43ff7d754c05a14647 "fixed-release boot validator"
+    require_file_hash "$runtime/query-drive-storage-state" dd90cb4319ae43fb15a1c3c5635f540c0cb4f138e0741c08fcab7ebc62a156c9 "Drive storage v2 verifier"
+    require_file_hash "$runtime/packages/wsdd_0.8.deb" bf96efcca6bf2993262d095e6c3cf2cbb7e527a4bf21ce747a865f5b3d7668d2 "official UNAS wsdd package"
+    require_file_hash "$runtime/packages/wsdd-server_0.8.deb" 32a3ee30346a49388d652ca7afcea96ef248909ff6afb8f6a04ee6e3158edbdf "official UNAS wsdd-server package"
+    require_file_hash "$runtime/unifi-drive-launcher" 28197a0032fbad95329dd5e9d4ca1f17adc5334f38561a8229ff8c5cbb9c0af3 "version-gated Drive launcher"
+    require_file_hash "$runtime/drive-bin/ubnt-tools" 702081e0478f2cbdd0147caef1f0c21ce8600691b2c2d9c9910626cd555759a4 "Drive-scoped ubnt-tools adapter"
+    require_file_hash "$runtime/drive-bin/real/ubnt-tools" b158615d9ba1d21a31c29e923d3be23796c95c43cadea2b73e1ce1460e18058e "stock ubnt-tools executable for Drive-scoped pass-through"
+    require_file_hash "$runtime/logical-unadopt" 65149af2ff8b52acc260f22cf72343b506274873ea6137dc991903199155524d "logical UNAS unadoption helper"
+    require_file_hash "$runtime/readopt-ssh-restorer" e8ab54e705a072ddd40c09f82679fadcc7dfcdb03fccd091a5166be62f73e6d1 "readoption SSH restorer"
+    require_file_hash /etc/systemd/system/unvr-unas-identity-restore.service 11471cd6329c8482803e54a1f5a0cbbc0d972a690103fe68f4e39f29d0b5854d "identity restore unit"
+    require_file_hash /etc/systemd/system/unvr-unas-drive-restore.service 30e351f068f49559770c692540ec9198a729d7f131b50d00e2dc2b2345920ec6 "fixed-release boot validation unit"
+    require_file_hash /etc/systemd/system/unvr-unas-readopt-ssh.service f71cf3e3839d74606989e1ba278cdd52ba37466eb662aa24f06a3775025a7977 "readoption SSH unit"
+    validate_drive_scoped_system_info
+    grep -qx "Environment=PATH=$runtime/drive-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        /etc/systemd/system/unifi-drive.service.d/unvr-unas-compat.conf \
+        || refuse "Drive-scoped identity PATH is missing"
+    grep -qx "BindReadOnlyPaths=$runtime/drive-bin/ubnt-tools:/sbin/ubnt-tools" \
+        /etc/systemd/system/unifi-drive.service.d/unvr-unas-compat.conf \
+        || refuse "Drive-scoped absolute ubnt-tools binding is missing"
+    grep -qx "BindReadOnlyPaths=$runtime/drive-system.info:/proc/ubnthal/system.info" \
+        /etc/systemd/system/unifi-drive.service.d/unvr-unas-compat.conf \
+        || refuse "Drive-scoped system-information binding is missing"
+    grep -qx 'Requires=unvr-unas-identity-restore.service' \
+        /etc/systemd/system/unifi-drive.service.d/unvr-unas-compat.conf \
+        || refuse "Drive identity dependency is missing"
+    grep -qx 'After=unvr-unas-identity-restore.service' \
+        /etc/systemd/system/unifi-drive.service.d/unvr-unas-compat.conf \
+        || refuse "Drive identity ordering is missing"
+    systemctl is-enabled --quiet unvr-unas-identity-restore.service || refuse "identity restore unit is not enabled"
+    systemctl is-enabled --quiet unvr-unas-drive-restore.service || refuse "Drive restore unit is not enabled"
+
+    require_file_hash "$runtime/profiles/5.1.33/core-service.js" a65c0736fd0abad3df5cc4cd1a42549cacc84e1b76f07ff30eff5cd1d75a774b "logical 5.1.33 Core profile"
+    require_file_hash "$runtime/profiles/5.1.33/uid-unifi-os-consoles.json" 424c7f663a94a06557d379d47944734483ee039467ebbb3c5ea750b6f99e5f32 "UID 5.x identity profile"
+    require_file_hash "$runtime/profiles/5.1.33/ulp-unifi-os-console.json" 29c94693d4586d20352c9aee22c08fa1f8c734a68fe588905d5b590babcd78f7 "ULP 5.x identity profile"
+    require_file_hash "$runtime/profiles/5.1.33/unifi-assets.tar.gz" dce770aa3c6349721466ed4031490f0eec2695a02b325a8dbbd05aad79560e82 "logical 5.1.33 assets"
+    require_file_hash "$runtime/modules/4.19.152-alpine-unvr/btrfs.ko" f9ae62b75113ad4291d1bd905e74c0749dea04e5dff79782b43c3d24a8badd9d "native Btrfs module"
+    require_file_hash "$runtime/modules/4.19.152-alpine-unvr/zstd_compress.ko" a05acb0c06dde88c1cf1b00759437a7cb338faa3e361fd946119b9dc49531043 "native Zstd module"
+    require_file_hash "$runtime/modules/4.19.152-alpine-unvr/fuse.ko" b2d5296f516e8e2bcbf8f55d67790a930746984c9eec7c2ab6d2aa578fa142ab "native FUSE module"
+}
+
+validate_services_and_storage() {
+    local expected_core_hash=$1 layout=$2 storage_mode=${3:-managed} target source lv_path owner storage state
+    [[ ! -e /var/run/fwupdate.pid ]] || refuse "another firmware update is active"
+    ! pgrep -x fwupdate >/dev/null || refuse "fwupdate process is active"
+    [[ ! -e /boot/firmware/rootfs.new ]] || refuse "an incomplete rootfs update is present"
+    for unit in unifi-core unifi-drive usd uhwd ulp-go nginx; do
+        systemctl is-active --quiet "$unit" || refuse "$unit is not active"
+    done
+    grep -qw fuse /proc/modules || refuse "FUSE module is not loaded"
+    [[ -c /dev/fuse ]] || refuse "FUSE device is unavailable"
+    local failed_unit
+    while read -r failed_unit; do
+        [[ -z "$failed_unit" || "$failed_unit" == postgresql-cluster-14-protect-cleanup.service ]] \
+            || refuse "unexpected failed unit: $failed_unit"
+    done < <(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}')
+
+    case "$layout" in
+        legacy)
+            systemctl is-active --quiet smbd || refuse "smbd is not active"
+            target=$(findmnt -rn -S /dev/md3 -o TARGET,FSTYPE 2>/dev/null \
+                | awk '$2 == "btrfs" { print $1; exit }')
+            [[ -n "$target" ]] || refuse "existing md3 Btrfs storage is not mounted"
+            [[ "$target" == /volume1 ]] || refuse "legacy storage is not mounted at /volume1"
+            grep -qE '^md0 : active raid1 ' /proc/mdstat || refuse "md0 is not active RAID1"
+            ;;
+        multi)
+            case "$storage_mode" in
+                managed)
+                    systemctl is-active --quiet smbd || refuse "smbd is not active"
+                    target=$(findmnt -rn -t btrfs -o TARGET 2>/dev/null \
+                        | awk '$1 ~ /^\/volume\// { print $1; exit }')
+                    [[ -n "$target" ]] || refuse "LVM-backed Btrfs storage is not mounted"
+                    [[ "$target" == /volume/* ]] || refuse "storage is not mounted in the 5.1 multi-volume tree"
+                    [[ "$(pvs --noheadings -o pv_name 2>/dev/null | awk '{$1=$1; print}')" == /dev/md3 ]] \
+                        || refuse "LVM physical volume is not the validated md3 array"
+                    [[ "$(vgs --noheadings -o vg_name 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l)" == 1 ]] \
+                        || refuse "unexpected LVM volume-group topology"
+                    lv_path=$(lvs --noheadings -o lv_path 2>/dev/null | awk '{$1=$1; print}')
+                    [[ "$lv_path" == /dev/*/* && "$lv_path" != *$'\n'* ]] \
+                        || refuse "unexpected LVM logical-volume topology"
+                    source=$(findmnt -rn -T "$target" -o SOURCE 2>/dev/null)
+                    source=${source%%\[*}
+                    [[ "$(readlink -f "$source")" == "$(readlink -f "$lv_path")" ]] \
+                        || refuse "mounted Btrfs source is not the validated LVM volume"
+                    grep -qE '^md3 : active raid1 ' /proc/mdstat || refuse "md3 is not active RAID1"
+                    ;;
+                deferred) ;;
+                *) refuse "unknown storage readiness mode: $storage_mode" ;;
+            esac
+            systemctl is-active --quiet wsdd-server udcd || refuse "Drive support services are not active"
+            require_equal "$(pkg_version lvm2)" 2.03.11-2.1 "official UNAS LVM2 version mismatch"
+            require_equal "$(pkg_version dmeventd)" 2:1.02.175-2.1 "official UNAS LVM event daemon version mismatch"
+            require_file_hash /sbin/lvm d61b5933ae9e91f087eaa6941354b072ee23140477418de3996e3593bebd8570 "official UNAS LVM executable"
+            ;;
+        *) refuse "unknown storage layout profile" ;;
+    esac
+    [[ "$layout" != legacy ]] || grep -qE '^md3 : active raid1 ' /proc/mdstat || refuse "md3 is not active RAID1"
+
+    if [[ "$layout" == multi && "$storage_mode" == managed ]]; then
+        state=$(/usr/bin/node24 "$runtime/query-drive-storage-state" 2>/dev/null || true)
+        jq -e '
+            (.poolsList | any(
+                .totalBytes > 0 and
+                .initializationStatus == 2 and
+                (.status as $status | ([6, 7, 17] | index($status)) != null) and
+                (.diskIdsList | length) >= 1
+            )) and
+            (.disksList | any(.slotId == 1 and .status == 4))
+        ' <<<"$state" >/dev/null || refuse "Drive storage v2 state is not healthy"
+    elif [[ "$layout" == multi ]]; then
+        state=$(/usr/bin/node24 "$runtime/query-drive-storage-state" 2>/dev/null || true)
+        jq -e '
+            (.poolsList | type) == "array" and
+            (.disksList | type) == "array" and
+            (.poolsList | all(.initializationStatus != 1))
+        ' <<<"$state" >/dev/null || refuse "Drive deferred-storage state is not ready"
+    else
+        owner=$(sudo -u postgres psql -X -d unifi-drive -A -t -c 'SELECT id FROM users LIMIT 1' 2>/dev/null || true)
+        [[ -n "$owner" ]] || refuse "Drive owner record is unavailable"
+        storage=$(curl -fsS -H "X-UserId: $owner" http://127.0.0.1:16080/api/v1/systems/storage 2>/dev/null || true)
+        state=$(curl -fsS -H "X-UserId: $owner" http://127.0.0.1:16080/api/sys/storage/state 2>/dev/null || true)
+        jq -e '((((try .data.status catch null) // .status) == "healthy") or ((.data | type) == "array" and any(.data[]; (.status == "healthy") or (.health == "health"))))' <<<"$storage" >/dev/null || refuse "Drive storage is not healthy"
+        jq -e '(.data.ready // .ready) == true' <<<"$state" >/dev/null || refuse "Drive storage is not ready"
+    fi
+
+    grep -q '^  schedule: null$' /data/unifi-core/config/firmware.yaml || refuse "console automatic updates are not disabled"
+    grep -q '^  includeApplications: false$' /data/unifi-core/config/firmware.yaml || refuse "application automatic updates are not disabled"
+    python3 - <<'PY' || refuse "application-specific automatic update schedules are not disabled"
+import yaml
+with open('/data/unifi-core/config/apps.userPrefs.yaml') as stream:
+    preferences = yaml.safe_load(stream)
+assert isinstance(preferences, dict)
+schedules = preferences['updateSchedules']
+assert isinstance(schedules, dict) and all(value is None for value in schedules.values())
+PY
+    require_file_hash /usr/share/unifi-core/app/service.js "$expected_core_hash" "active Core UNAS identity"
+}
+
+validate_final() {
+    local owner system_info storage_v2 drive_version expected_drive_hash expected_schema storage_mode
+    local logical_target expected_completion active_root backup_root config_hash active_kernel backup_kernel expected_uos expected_uboot expected_core_profile physical_label
+    logical_target=5.1.33
+    physical_label=UNVR-5.1.33
+    expected_completion='physical=UNVR-5.1.33 logical=UNASPRO-5.1.33 state=complete'
+    active_root=e29dd4200a24106a8aadefc6122a145c2510570f39173b993bf595bde9a75944
+    backup_root=RECORDED
+    config_hash=6e7bcbc5c1779103dfadcf7b49a1c3e50e49c647bb0284ff478781e0888b3f6c
+    active_kernel=158688310a8fbef461c2f72a1d05326a246bcfa8525e3dc77177454853c462da
+    backup_kernel=RECORDED
+    expected_uos=5.1.5
+    expected_uboot=95ab38b870eb3886f35a6411244f99596d9788e165c84b8ff3b6e522b3d5f2a6
+    expected_core_profile=a65c0736fd0abad3df5cc4cd1a42549cacc84e1b76f07ff30eff5cd1d75a774b
+    require_equal "$(uname -r)" 4.19.152-alpine-unvr "5.x kernel baseline mismatch"
+    require_equal "$(sha256 /dev/mtd0)" "$expected_uboot" "5.1 U-Boot MTD mismatch"
+    validate_boot_files \
+        "$active_root" \
+        "$backup_root" \
+        "$config_hash" \
+        "$active_kernel" \
+        "$backup_kernel"
+    require_equal "$(pkg_version unifi-core)" 5.1.132 "Core 5.x version mismatch"
+    require_equal "$(pkg_version uos)" "$expected_uos" "UOS utility version mismatch"
+    drive_version=$(pkg_version unifi-drive)
+    case "$drive_version" in
+        4.3.10)
+            expected_drive_hash=b26ed8c0e33bd44a6daf83b2b123513c231665161a9a2b2a70bd852bf5bd4b0a
+            expected_schema='123|f'
+            ;;
+        4.4.9)
+            expected_drive_hash=1a1265721040fa1c39ec6d6c121eff14db5ae4d8d26491888d0cc017839f3142
+            expected_schema='129|f'
+            ;;
+        *) refuse "final Drive version is not compatibility-profiled: $drive_version" ;;
+    esac
+    require_file_hash /usr/share/unifi-drive/bin/unifi-drive "$expected_drive_hash" "official Drive $drive_version executable"
+    require_equal "$(pkg_version unifi-drive-config)" 2.23.0-11+ga8a43c45ecd7 "final Drive Config version mismatch"
+    require_equal "$(pkg_version unifi-drive-rclone)" 1.74.4-1+g2b3bd0b0f35e "final Drive rclone version mismatch"
+    require_equal "$(pkg_version ulp-go)" 1.13.11+6130 "ULP 5.x version mismatch"
+    require_equal "$(pkg_version ustd:arm64)" 5.1.18-10+g8a41ccbc679d "USTD 5.x version mismatch"
+    require_equal "$(pkg_version ubntnas)" 1.0.0-10+g27d234f8e526 "ubntnas 5.x version mismatch"
+    require_equal "$(pkg_version unifi-hal:arm64)" 1.0.0-1378+ga49db765b339 "HAL 5.x version mismatch"
+    require_equal "$(pkg_version ubnt-tools)" 5.1.11~556+g3abf3fe "ubnt-tools 5.x version mismatch"
+    require_equal "$(sudo -u postgres psql -X -d unifi-drive -A -F '|' -t -c 'SELECT version,dirty FROM schema_migrations' 2>/dev/null || true)" "$expected_schema" "Drive $drive_version schema migration is incomplete"
+    require_equal "$(cat "$runtime/logical-target" 2>/dev/null || true)" "$logical_target" "logical target marker mismatch"
+    require_equal "$(cat "$runtime/completed-update" 2>/dev/null || true)" "$expected_completion" "final completion marker is missing"
+    [[ ! -e "$runtime/pending-update" ]] || refuse "final state still has a pending-update marker"
+    [[ ! -e "$runtime/allow-base-update-4.3.10" &&
+       ! -e "$runtime/allow-userspace-update-5.1.32" ]] \
+        || refuse "final state still has an obsolete update arm file"
+    [[ ! -e "$runtime/allow-base-update-5.1.33" ]] || refuse "obsolete OS update arm file is present"
+    storage_mode=$(cat "$runtime/storage-mode" 2>/dev/null || true)
+    case "$storage_mode" in managed|deferred) ;; *) refuse "final storage mode is missing or invalid" ;; esac
+    validate_services_and_storage "$expected_core_profile" multi "$storage_mode"
+
+    owner=$(sudo -u postgres psql -X -d ulp-go -A -t -c \
+        'SELECT unique_id FROM "user" WHERE deleted_at IS NULL LIMIT 1' 2>/dev/null || true)
+    [[ -n "$owner" ]] || refuse "current ULP owner record is unavailable"
+    system_info=$(curl -fsS -H "X-UserId: $owner" http://127.0.0.1:16080/api/v1/systems/info 2>/dev/null || true)
+    jq -e --arg drive_version "$drive_version" --arg logical_target "$logical_target" '
+        .data.console.model == "UNASPRO" and
+        .data.firmwareVersion == $logical_target and
+        .data.version == $drive_version and
+        .data.features.storage.pool.supported == true and
+        .data.modelSpecs.storage.fileSystem == "Btrfs"
+    ' <<<"$system_info" >/dev/null || refuse "Drive frontend feature profile is not final UNAS $logical_target"
+    storage_v2=$(curl -fsS http://127.0.0.1:16080/api/v2/storage 2>/dev/null || true)
+    if [[ "$storage_mode" == managed ]]; then
+        jq -e '
+            (.pools | any(
+                .capacity > 0 and
+                .initializingStatus == "successful" and
+                (.status == "healthy" or .status == "noDataProtectionYet")
+            )) and
+            (.disks | any(.slotId == "1" and .state == "optimal"))
+        ' <<<"$storage_v2" >/dev/null || refuse "Drive frontend storage v2 endpoint is not healthy"
+    else
+        jq -e '(.pools | type) == "array" and (.disks | type) == "array" and
+            (.pools | all(.initializingStatus != "inProgress"))' <<<"$storage_v2" >/dev/null \
+            || refuse "Drive frontend deferred-storage endpoint is not ready"
+    fi
+    log "validated final logical UNAS $logical_target profile on physical $physical_label"
+}
+
+trap cleanup EXIT HUP INT TERM
+[[ $# == 1 && "$1" == --profile-check ]] \
+    || refuse 'OS firmware updates are disabled for the pinned UNAS Pro 5.1.33 release'
+require_equal "$(cat /usr/lib/version)" "$physical_5_1_33" "physical baseline is not the pinned UNVR 5.1.33 release"
+validate_physical_identity
+validate_restore_payload
+validate_final
+printf 'GUARDED_PROFILE_CHECK_OK stage=final physical=UNVR-5.1.33 logical=UNASPRO-5.1.33 drive=%s\n' "$(pkg_version unifi-drive)"

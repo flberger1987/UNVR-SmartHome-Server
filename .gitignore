@@ -1,0 +1,5 @@
+# Official Ubiquiti firmware is fetched by tools/fetch-firmware.sh and must not
+# be committed: it is Ubiquiti's software, not redistributable here.
+cache/firmware/
+*.part
+.DS_Store

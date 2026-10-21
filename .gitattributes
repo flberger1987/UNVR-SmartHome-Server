@@ -1,0 +1,4 @@
+# Large binaries live in Git LFS: GPL kernel modules built by tools/build-modules.sh
+# and the hash-pinned Debian packages the payload builder would otherwise download.
+prebuilt/**/*.ko filter=lfs diff=lfs merge=lfs -text
+cache/artifacts/** filter=lfs diff=lfs merge=lfs -text

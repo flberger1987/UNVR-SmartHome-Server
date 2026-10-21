@@ -3,54 +3,116 @@
 > [!NOTE]
 > **About this fork.** This is a fork of
 > [TaimurAyaz/unifi-unvr-to-unas](https://github.com/TaimurAyaz/unifi-unvr-to-unas)
-> with two changes for UNVRs the original converter refuses. Everything below
-> the fork notes is the upstream documentation.
+> with fixes for UNVRs and Macs the original converter could not handle, plus
+> tooling to repeat the conversion quickly. Everything below the fork notes is
+> the upstream documentation.
+
+## Quick start (this fork)
+
+```bash
+git lfs install
+git clone https://github.com/flberger1987/Unifi-UNVR-UNAS.git
+cd Unifi-UNVR-UNAS
+tools/run-conversion.sh --ip <UNVR-IP> --skip-controller-cleanup
+```
+
+`tools/run-conversion.sh` fetches and verifies the two official firmware images
+into `cache/firmware/`, then runs `convert.sh install` with the local Debian
+package cache and the prebuilt kernel modules from Git LFS. Leave out
+`--skip-controller-cleanup` if a UniFi OS console running Network sits at the
+UNVR's gateway (or pass `--controller-ip`).
+
+Before you start, check the [runbook](#runbook) below: **remove all drives**,
+and downgrade first if the UNVR runs UniFi OS 6.x.
 
 ## Fork changes
 
-- **`--skip-controller-cleanup`**: the upstream installer stops before the
-  reset unless it can sign in to a UniFi OS console running Network at the
-  UNVR gateway (or `--controller-ip`). That console is only used for an
-  optional cleanup of the UNVR's stale client record. The flag skips controller
-  discovery and the cleanup, for networks without a UniFi gateway or with a
-  self-hosted Network server.
-- **2020 factory recovery kernel**: upstream accepts a single recovery-kernel
-  hash (`dadcfc…`). Units that still carry the original recovery kernel
-  `4.1.37-ubnt @ 20201214` (`99798c…`) were refused. Both are now accepted. The
-  recovery partition is only read, never written. The change to the embedded
-  helpers is shown in readable form in
-  [`patches/embedded-helpers-recovery-kernel.diff`](patches/embedded-helpers-recovery-kernel.diff).
+Fixes in `convert.sh` and its embedded helpers (readable in [`helpers/`](helpers)):
 
-## UNVR already on UniFi OS 6.x
+| Problem | Fix |
+| --- | --- |
+| Installer insisted on a UniFi OS console running Network for an optional cleanup | `--skip-controller-cleanup` |
+| Original December 2020 recovery kernel `4.1.37-ubnt @ 20201214` (`99798c…`) refused | accepted next to upstream's `dadcfc…`; the partition is only read |
+| UI accounts whose default MFA is email (or SMS): the explicit send request fails with `HTTP 400 VALIDATION_ERROR` | continue and ask for the code the identity service already sent |
+| Pasting into the hidden prompts (⌘V) produced garbage or an empty value (bracketed paste) | escape sequences are parsed fully; empty input asks again |
+| Site Manager unregister picked the first user, not the Owner, on consoles with several users (`HTTP 401`) | the Owner role is looked up explicitly |
+| Newer Xcode command line tools: `ar` adds a `__.SYMDEF` table, the rebuilt `wsdd` packages are malformed | `ar -rcS` |
+| Pinned archive hashes only matched in the author's time zone (`touch -t` is local time) | builders run with `TZ=Etc/GMT+5` |
+| With more than one drive, UniFi OS builds a multi-disk Protect pool after the reset that the classifier cannot handle; the run stops after the reset | refused before the reset with a clear message |
 
-A UNVR on UniFi OS 6.x keeps the 5.1.33 U-Boot, but the converter only accepts
-that U-Boot on the exact signed 5.1.33 system, so it refuses before the reset.
-Downgrade to 5.1.33 first with Ubiquiti's own updater. The downgrade itself
-keeps the console configuration and does not touch the disks; the conversion
-wipes both later anyway.
+New options and tools:
 
-1. In **Control Plane → Updates**, clear *Auto-Update* for UniFi OS and every
-   application and apply. Otherwise the console updates itself back overnight.
-2. In **Control Plane → Console**, enable SSH, then on the UNVR as `root`:
+| | |
+| --- | --- |
+| `convert.sh --prebuilt-modules DIR` | stages `zstd_compress.ko`, `btrfs.ko`, `fuse.ko` on the UNVR; the modules phase verifies their pinned hashes and vermagic instead of compiling (saves 20–40 minutes) |
+| `convert.sh --artifact-cache DIR` | reuses the hash-pinned Debian downloads (the payload build drops from ~4 minutes to ~40 s) |
+| [`tools/run-conversion.sh`](tools/run-conversion.sh) | runs the conversion with all of the above |
+| [`tools/fetch-firmware.sh`](tools/fetch-firmware.sh) | downloads UNVR 5.1.33 and UNAS Pro 5.1.33 from Ubiquiti into `cache/firmware/` and verifies size and SHA-256 |
+| [`tools/build-modules.sh`](tools/build-modules.sh) | rebuilds the three modules in Docker (Debian bullseye arm64, same snapshot, compiler and commands as on the UNVR; about a minute on Apple Silicon). The kernel config is extracted from the official firmware image. Only byte-identical results replace `prebuilt/` |
+| [`tools/downgrade-to-5.1.33.sh`](tools/downgrade-to-5.1.33.sh) | moves a stock UNVR on UniFi OS 6.x back to signed 5.1.33 with Ubiquiti's own updater |
+| [`tools/embedded_helpers.py`](tools/embedded_helpers.py) | `extract` / `embed` / `check` the helper archive in `convert.sh`; `embed` rewrites every pinned helper hash |
 
-   ```bash
-   cd /mnt/.rwfs
-   curl -fL -o UNVR-5.1.33.bin https://fw-download.ubnt.com/data/unifi-nvr/976a-UNVR-5.1.33-84c520f3-fb97-41e0-be2b-b0f89c46c7b8.bin
-   sha256sum UNVR-5.1.33.bin   # must be b170e97f9b7a703947380aed1108221e70ab18074b986906aca9df10891ca1e0
-   /sbin/ubnt-tools fwupdate -dc UNVR-5.1.33.bin   # signature check only, must end with exit code 0
-   /sbin/ubnt-systool fwupdate UNVR-5.1.33.bin     # flashes and reboots
-   ```
+What is stored where:
 
-3. After the reboot, `cat /usr/lib/version` must print
-   `UNVR4.al324.v5.1.33.44ce47b.260909.0025`. The updater log should show
-   `uboot matched, skip`.
-4. Run the converter as described below, for example
-   `./convert.sh install --ip <UNVR-IP> --skip-controller-cleanup`.
+| Path | Content | Storage |
+| --- | --- | --- |
+| `prebuilt/modules/4.19.152-alpine-unvr/` | the three GPL kernel modules, byte-identical to the validated build | Git LFS |
+| `prebuilt/kernel-config/config-UNVR-5.1.33` | kernel configuration of UNVR 5.1.33 (from the firmware's `IKCONFIG`) | Git |
+| `cache/artifacts/` | 307 hash-pinned Debian bullseye files (Drive closure, kernel-build mirror and its signed index), ~190 MB | Git LFS |
+| `cache/firmware/` | official Ubiquiti firmware | **not committed** (Ubiquiti's software); fetched by `tools/fetch-firmware.sh` |
 
-Verified on 2026-10-21 on one four-bay UNVR (6.0.11 → 5.1.33): the downgrade,
-then the converter's read-only pre-reset checks with the patched helpers
-(`detect-baseline`, `factory-reset-preflight`, `assert_base_5_physical` and the
-guarded updater's physical identity check).
+Ubiquiti's own Drive packages are not cached either; the builder downloads them
+from Ubiquiti and checks them against their pinned hashes.
+
+## Runbook
+
+1. **Drives.** Pull every drive tray (or leave only bay 1). After the factory
+   reset UniFi OS creates a Protect pool on all installed drives, and the
+   converter only knows how to clear the single-drive pool in bay 1. Insert
+   the drives after the UNAS setup and create the storage pool (RAID 5, 6 or 10)
+   in UniFi Drive.
+2. **Firmware.** Check *Control Plane → Console → About This Console*. On
+   UniFi OS 6.x (or anything other than 5.1.33):
+   1. *Control Plane → Updates*: clear *Auto-Update* for UniFi OS and every
+      application, apply. Otherwise the console updates itself back overnight.
+   2. *Control Plane → Console*: enable SSH with a password.
+   3. `tools/downgrade-to-5.1.33.sh <UNVR-IP>` (asks for the SSH password,
+      verifies the image with Ubiquiti's updater, asks before flashing).
+      The log should show `uboot matched, skip`.
+3. **Account.** Sign in with the UI account that **owns** the console
+   (`ACCOUNT_NOT_EXIST_LOCALLY` means a different account). Email, SMS, TOTP,
+   push and backup codes work; passkey-only accounts do not.
+4. **Run** `tools/run-conversion.sh --ip <UNVR-IP> --skip-controller-cleanup`
+   in Terminal and answer `y`. Always use the newest MFA code; it is asked for
+   again after the factory reset.
+5. **Finish** the UNAS Pro setup in the browser or UniFi app when the script
+   pauses, then press Enter.
+
+### Troubleshooting
+
+- **`Permission denied (publickey,keyboard-interactive)` although the temporary
+  SSH password is set:** the UNVR locks root for three minutes after three
+  failed logins within 15 minutes (`pam_faillock`, `even_deny_root`), silently.
+  Each run first tries the temporary password; several restarts in a row can
+  trigger the lock. Wait three minutes, or as root on the UNVR run
+  `faillock --user root --reset`.
+- **The Mac needs about 6 GB free** for the payload build (the builder checks
+  before it starts).
+- **`storage topology did not settle into a preservable state`:** more than one
+  drive was installed (see step 1).
+
+### Verified on 2026-10-21
+
+Four-bay UNVR, UniFi OS 6.0.11, recovery kernel `99798c…`, four drives,
+macOS 26.5.1 (Xcode CLT 26.5), a UTC+1 time zone:
+
+- downgrade 6.0.11 → 5.1.33 with `uboot matched, skip`
+- converter steps 1–2 (sign-in with email MFA, Owner-scoped unregister, factory
+  reset, temporary ownership, baseline checks) and the full payload build,
+  with and without `--artifact-cache` (identical bundle hash)
+- `tools/build-modules.sh`: all three modules byte-identical to the pinned hashes
+
+The remaining steps are documented in the commit that records the full run.
 
 ---
 
