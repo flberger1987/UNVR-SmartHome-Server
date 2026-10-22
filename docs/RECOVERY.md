@@ -54,16 +54,20 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 
 | What | How | Where | When |
 | --- | --- | --- | --- |
-| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network backups | `extras/unas-apps/backup-unas.sh root@<UNAS>` | `.unas-apps/backup/recovery/` | after setup, after app installs/updates, monthly |
-| Off-box copy of the recovery set | copy the directory (SMB share, `scp`, external disk) | outside the NAS | after each recovery set |
+| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network backups | `extras/unas-apps/backup-unas.sh root@<UNAS> --share <Drive share> --weekly` installs `unas-backup` and a weekly timer (Sunday 01:00); `unas-backup` on the NAS runs it by hand | `<share>/UNAS-Recovery/recovery/` (linked from `.unas-apps/backup/recovery`) | weekly, and after app installs/updates |
+| Off-box copy | a UniFi Drive remote backup of that share (here: the nightly OneDrive task at 02:00), unencrypted | cloud | nightly |
 | UniFi Network | autobackup in the Network app (set: daily 03:00, keep 7) | inside UniFi OS, newest two in the recovery set | daily |
 | UniFi OS console (Network, Protect settings, users) | cloud backup (needs Remote Access) | Ubiquiti cloud | daily |
-| SD card image | `nice ionice -c3 dd if=/dev/boot bs=4M \| zstd -T2 -3 > <pool>/.unas-apps/backup/sd-boot-<date>.img.zst` | `.unas-apps/backup/` | after host changes |
+| SD card image | `unas-backup --sd-image` (or `backup-unas.sh … --sd-image`) | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`) | after host changes |
 | Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set) | Git | — |
 
 The recovery set is on the same disks as the apps. It covers a lost, reset or
 replaced boot medium; the loss of the RAID needs the off-box copy (or the
-cloud backup plus a rebuild from sources).
+cloud backup plus a rebuild from sources). Stable file names let the cloud
+copy replace files instead of collecting old versions. The set is stored
+unencrypted (decided for this installation): the Network backups in it hold
+Wi-Fi passwords and device credentials, so the cloud account must be protected
+accordingly.
 
 ## Recovery scenarios
 
