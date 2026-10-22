@@ -18,7 +18,7 @@ networks:
 
 services:
   unifi-protect:
-    image: unvr-protect:5.1.33
+    image: unvr-protect:live     # deployed state, see ../uckp/compose.yaml
     container_name: unifi-protect
     hostname: unvr-protect
     restart: unless-stopped

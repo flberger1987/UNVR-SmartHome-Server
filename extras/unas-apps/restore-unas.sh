@@ -52,11 +52,6 @@ for f in "$B"/images/*.tar.zst; do
     echo "loading $(basename "$f")"
     zstd -dc "$f" | docker load -q
 done
-# live states of the UniFi OS containers (installed apps) under the stack's image name
-for live in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -- '-live$'); do
-    docker tag "$live" "${live%-live}"
-    echo "${live%-live} = $live"
-done
 
 # LoxBerry's volume, if it is new or empty
 if [ -f "$B/loxberry-volume.tar.zst" ]; then

@@ -75,6 +75,7 @@ echo "built unvr-protect:5.1.33"
 else
     echo "using existing image unvr-protect:5.1.33 (--rebuild to build it again)"
 fi
+docker image inspect unvr-protect:live >/dev/null 2>&1 || docker tag unvr-protect:5.1.33 unvr-protect:live
 
 # storage: subvolume without CoW (excluded from pool snapshots), fixed-size ext4
 [ -e "$P" ] || btrfs subvolume create "$P" >/dev/null

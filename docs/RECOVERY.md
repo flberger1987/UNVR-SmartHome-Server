@@ -103,7 +103,7 @@ The pool still holds Docker, every image, container and app data.
 2. Copy the off-box recovery set to `<pool>/.unas-apps/backup/recovery/`.
 3. `extras/unas-apps/restore-unas.sh root@<UNAS>` — verifies the checksums,
    restores stack config and console identities, loads all images (the UniFi
-   OS live image under the stack's image name), restores LoxBerry's volume.
+   OS image `uckp-os:live` with its installed apps), restores LoxBerry's volume.
 4. `extras/unas-apps/uckp/install-uckp.sh root@<UNAS> --ip <UCKP_IP> --mac <UCKP_MAC> --size <SIZE>`
    — keeps the restored identity and image, creates the fixed-size volume.
 5. `extras/unas-apps/install-on-unas.sh root@<UNAS> --up`
@@ -198,7 +198,7 @@ As in [Backups](#backups); keep it on the pool and off-box.
    `.unf` ([restore under load](#restore-under-load)).
 4. Remote Access on (Control Plane → Console). Install Protect from the app
    list. Set the Network autobackup schedule (daily, keep 7).
-5. `extras/unas-apps/backup-unas.sh root@<UNAS>` — the live image now holds
+5. `extras/unas-apps/backup-unas.sh root@<UNAS>` — `uckp-os:live` now holds
    the installed apps.
 
 ### 9. Devices
@@ -287,7 +287,7 @@ authentication) and `set-inform http://<UCKP_IP>:8080/inform`.
 | `uid-agent` crash loop: "Dirty database version …" | killed during its first migration (90 s limit) | 25 min / 1200 s in the image; repair: stop it, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` in its database `uid` (only while it never ran), start |
 | Remote Access cannot be enabled: "Timeout when waiting for ClockSynchronized" | it needs `NTP=yes` and `NTPSynchronized=yes`; timesyncd is masked (the host owns the clock) | no-op unit registered in `ntp-units.d` (in the image) |
 | UI: IP configuration, fallback IP, SSH have no effect; Shut Down restarts | network, SSH and power services are masked; Docker restarts the container | change the address in the stack's `.env`; **never Factory Reset** (wipes the container's data) |
-| Protect missing after recreating the container | apps live in the container layer, not in the volumes | `backup-unas.sh` commits `<image>-live`; restore uses it |
+| Protect missing after recreating the container | UniFi OS installs apps into the container layer, not into the volumes; the clean build `uckp-os:6.0.11` lacks them | the stack runs `uckp-os:live`; `install-on-unas.sh --up` and `backup-unas.sh` commit the running container to it first. Deploying a rebuilt base (`docker tag uckp-os:6.0.11 uckp-os:live`) drops installed apps — reinstall them in UniFi OS |
 | UniFi OS update offered | — | do not update UniFi OS inside the containers; rebuild from newer firmware instead |
 | installing Protect takes ~45 min, "unpacked" for a long time | dpkg syncs every file, slow on RAID 6 HDDs | wait; the image sets `force-unsafe-io` for later installs and updates |
 

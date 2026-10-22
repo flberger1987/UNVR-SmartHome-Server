@@ -217,6 +217,12 @@ set -euo pipefail
 envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
 PROTECT="${STACK%/unas-apps}/protect"   # optional, from protect/install-protect.sh
 UCKP="${STACK%/unas-apps}/uckp"         # optional, from uckp/install-uckp.sh
+# UniFi OS keeps installed apps in the container layer: commit it to the
+# :live image the stack runs before the container is removed
+for c in unifi-os unifi-protect; do
+    img=$(docker container inspect -f '{{.Config.Image}}' "$c" 2>/dev/null) || continue
+    case "$img" in *:live) docker commit --pause=false "$c" "$img" >/dev/null && echo "kept state of $c in $img" ;; esac
+done
 for s in "$PROTECT" "$UCKP"; do
     [ -f "$s/.env" ] && { (cd "$s" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true; }
 done

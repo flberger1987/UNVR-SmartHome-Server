@@ -15,7 +15,11 @@ networks:
 
 services:
   unifi-os:
-    image: uckp-os:6.0.11
+    # :live is the deployed state, including the apps UniFi OS installed into
+    # the container (Protect, updates); uckp-os:6.0.11 is the clean build.
+    # install-uckp.sh creates :live from the build once; install-on-unas.sh --up
+    # and backup-unas.sh commit the running container to it.
+    image: uckp-os:live
     container_name: unifi-os
     hostname: unifi-os
     restart: unless-stopped

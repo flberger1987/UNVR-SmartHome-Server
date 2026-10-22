@@ -7,16 +7,15 @@
 #   extras/unas-apps/backup-unas.sh root@<UNAS-IP>
 #
 # UniFi OS installs its apps (Protect, Network updates, ...) into the
-# container's own file layer, not into the data volumes; the built image
-# does not have them. The UniFi OS containers (unifi-os, unifi-protect) are
-# therefore first committed to <image>-live and that image is saved instead;
-# restore-unas.sh loads it under the image name the stack uses. Run this after
-# installing or updating apps in UniFi OS.
+# container's own file layer, not into the data volumes; the clean build does
+# not have them. The UniFi OS stacks therefore run <image>:live, and the
+# running containers (unifi-os, unifi-protect) are committed to it before it
+# is saved. Run this after installing or updating apps in UniFi OS.
 #
 # Result in <pool>/.unas-apps/backup/recovery/ (images that did not change
 # since the last run are skipped):
 #   images/<image>.tar.zst      docker save of each image the stacks use
-#                               (<image>-live for the UniFi OS containers)
+#                               (uckp-os:live: UniFi OS with its installed apps)
 #   config.tar.zst              stacks (compose.yaml, .env, resolv.conf), Dockge,
 #                               identities of the UniFi OS containers, daemon.json
 #   host-files.tar.zst          host units/scripts/settings, for reference
@@ -40,16 +39,14 @@ z() { nice -n 19 ionice -c3 zstd -T2 -6 -q "$@"; }
 
 # images of all stacks (also those in optional profiles)
 images=$(sed -n 's/^ *image: *\([^ #"]*\).*/\1/p' "$A"/data/stacks/*/compose.yaml "$A"/dockge/compose.yaml | sort -u)
-# UniFi OS containers: freeze the container layer (installed apps) as <image>-live
+# UniFi OS containers: freeze the container layer (installed apps) into the
+# :live image their stack runs
 for c in unifi-os unifi-protect; do
     docker container inspect "$c" >/dev/null 2>&1 || continue
-    base=$(docker container inspect -f '{{.Config.Image}}' "$c")
-    base=$(grep -x -F "$base" <<< "$images" || docker image inspect -f '{{index .RepoTags 0}}' "$base" 2>/dev/null || true)
-    [ -n "$base" ] || { echo "cannot tell the image of $c (skipped)"; continue; }
-    docker commit --pause=false -m "live state of $c, $(date -Is)" "$c" "$base-live" >/dev/null
-    images=$(sed "s|^$base\$|$base-live|" <<< "$images")
-    rm -f "$B/images/$(echo "$base" | tr '/:' '__').tar.zst"*
-    echo "committed $c -> $base-live"
+    img=$(docker container inspect -f '{{.Config.Image}}' "$c")
+    case "$img" in *:live) ;; *) echo "$c does not run a :live image ($img), not committed"; continue ;; esac
+    docker commit --pause=false -m "live state of $c, $(date -Is)" "$c" "$img" >/dev/null
+    echo "committed $c -> $img"
 done
 for img in $images; do
     id=$(docker image inspect -f '{{.Id}}' "$img" 2>/dev/null) || { echo "missing image $img (skipped)"; continue; }

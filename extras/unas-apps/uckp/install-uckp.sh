@@ -100,6 +100,12 @@ echo "built uckp-os:6.0.11"
 else
     echo "using existing image uckp-os:6.0.11 (--rebuild to build it again)"
 fi
+# the stack runs uckp-os:live (deployed state incl. apps installed in UniFi OS)
+if ! docker image inspect uckp-os:live >/dev/null 2>&1; then
+    docker tag uckp-os:6.0.11 uckp-os:live && echo "uckp-os:live = uckp-os:6.0.11"
+else
+    echo "keeping uckp-os:live (to deploy a rebuild: docker tag uckp-os:6.0.11 uckp-os:live; apps installed in UniFi OS are then gone)"
+fi
 
 # storage: subvolume without CoW (excluded from pool snapshots), fixed-size ext4
 [ -e "$P" ] || btrfs subvolume create "$P" >/dev/null

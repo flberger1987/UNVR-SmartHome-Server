@@ -80,7 +80,7 @@ extras/unas-apps/restore-unas.sh root@<UNAS-IP>   # load it back (after install-
 ```
 
 The recovery set holds the finished images (the UniFi OS containers as
-`<image>-live`, with the apps installed inside them), the stack configuration
+`uckp-os:live`, with the apps installed inside them), the stack configuration
 with the console identities, LoxBerry's volume and the newest Network backups.
 
 ## Restoring a controller backup
