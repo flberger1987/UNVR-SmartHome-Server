@@ -215,7 +215,10 @@ if [[ "$up" == true ]]; then
 set -euo pipefail
 envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
 PROTECT="${STACK%/unas-apps}/protect"   # optional, from protect/install-protect.sh
-[ -f "$PROTECT/.env" ] && { (cd "$PROTECT" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true; }
+UCKP="${STACK%/unas-apps}/uckp"         # optional, from uckp/install-uckp.sh
+for s in "$PROTECT" "$UCKP"; do
+    [ -f "$s/.env" ] && { (cd "$s" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true; }
+done
 (cd "$DOCKGE" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
 (cd "$STACK" && docker compose down) 2>&1 | grep -v -i 'forwarding' || true
 docker network rm unas-lan unas-apps_lan >/dev/null 2>&1 || true   # unas-apps_lan: older layout
@@ -223,7 +226,9 @@ docker network create -d macvlan --subnet "$(envget LAN_SUBNET)" --gateway "$(en
     -o parent="$(envget LAN_PARENT)" unas-lan >/dev/null
 (cd "$DOCKGE" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
 (cd "$STACK" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1
-[ -f "$PROTECT/.env" ] && { (cd "$PROTECT" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1; }
+for s in "$PROTECT" "$UCKP"; do
+    [ -f "$s/.env" ] && { (cd "$s" && docker compose up -d) 2>&1 | grep -v -i 'forwarding' | tail -1; }
+done
 docker ps --format '{{.Names}}' | while read -r c; do
     printf '%-27s %s\n' "$c" "$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")"
 done

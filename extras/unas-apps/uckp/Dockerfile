@@ -51,5 +51,10 @@ RUN set -e; \
 COPY ubnt-tools /sbin/ubnt-tools
 COPY ustorage /usr/bin/ustorage
 
+# Starts of the Network app take longer than its 15 min start timeout while the
+# box is busy (RAID resync, swap); systemd would kill it in the middle.
+RUN mkdir -p /etc/systemd/system/unifi.service.d && \
+    printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi.service.d/90-unas-slow-start.conf
+
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

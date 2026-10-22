@@ -6,7 +6,7 @@ address. Verified on 2026-10-21 on the four-bay UNVR from the main README.
 
 | Service | Address | Notes |
 | --- | --- | --- |
-| UniFi Network 10.6.106 | `https://<UNIFI_IP>:8443` | MongoDB 4.4.18 shares its network namespace (127.0.0.1 only) |
+| UniFi Network 10.6.106 (standalone) | `https://<UNIFI_IP>:8443` | optional (`--profile standalone-controller`), MongoDB 4.4.18 shares its network namespace; replaced by the Cloud Key UniFi OS below |
 | LoxBerry 3.0.1.3 | `http://<LOXBERRY_IP>/` | default login `loxberry`/`loxberry`, change it |
 | Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` and `protect` stacks |
 | UniFi Protect (UNVR 5.1.33) | `https://<PROTECT_IP>/` | optional, see [UniFi Protect](#unifi-protect) |
@@ -149,7 +149,18 @@ account and restores UniFi OS backups including their admins. The invented
 serial is accepted by the UI cloud (tested with the Protect container).
 
 RAM: the box has 4 GB. Running it next to the standalone controller and the
-UNVR Protect container is fine for a test; for good it replaces both.
+UNVR Protect container is fine for a test; for good it replaces both. To move
+from the standalone server: back it up, stop it (the services sit in the
+`standalone-controller` profile, so the stack no longer starts them), set
+`UCKP_IP` in the uckp stack's `.env` to the old controller address and
+recreate; adopted devices keep informing that address. Then restore the
+backup in the new Network app.
+
+Under heavy disk load (RAID resync, swapping) the Network app may start for
+longer than its 15-minute systemd timeout; the image raises it to 45 minutes.
+A restore can fail the same way ("Failed to restore backup", a MongoDB socket
+timeout while it drops the old database): free memory and disk first (stop
+the old controller), then run it again.
 
 ## Moving to another network
 

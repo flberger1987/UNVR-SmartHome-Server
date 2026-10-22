@@ -20,9 +20,12 @@ networks:
     name: unas-lan
 
 services:
+  # Standalone UniFi Network Server. Optional since UniFi OS from the Cloud Key
+  # (uckp/) runs Network itself; start it with --profile standalone-controller.
   unifi-network-application:
     image: lscr.io/linuxserver/unifi-network-application:10.6.106-ls151
     container_name: unifi-network-application
+    profiles: ["standalone-controller"]
     restart: unless-stopped
     # Joins the network namespace (and LAN address) owned by unifi-db. The owner
     # is the database because it rarely restarts; a namespace owner restart
@@ -51,6 +54,7 @@ services:
   unifi-db:
     image: mongo:4.4.18        # last MongoDB release that runs on ARMv8.0 (Cortex-A57)
     container_name: unifi-db
+    profiles: ["standalone-controller"]
     hostname: unifi
     restart: unless-stopped
     networks:                  # owns the controller's LAN address (see above)
