@@ -51,10 +51,16 @@ RUN set -e; \
 COPY ubnt-tools /sbin/ubnt-tools
 COPY ustorage /usr/bin/ustorage
 
-# Starts of the Network app take longer than its 15 min start timeout while the
-# box is busy (RAID resync, swap); systemd would kill it in the middle.
-RUN mkdir -p /etc/systemd/system/unifi.service.d && \
-    printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi.service.d/90-unas-slow-start.conf
+# Starts take longer here than on a Cloud Key while the box is busy (RAID
+# resync, swap, RAID 6 small writes): systemd would kill them half-way. The
+# Network app gets 45 min instead of 15. uid-agent gets 25 min instead of 90 s
+# (and its start script waits 20 min instead of 100 s): killed during its first
+# database migration it stays "Dirty database version ..." and never starts.
+RUN mkdir -p /etc/systemd/system/unifi.service.d /etc/systemd/system/uid-agent.service.d && \
+    printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi.service.d/90-unas-slow-start.conf && \
+    printf '[Service]\nTimeoutStartSec=25min\n' > /etc/systemd/system/uid-agent.service.d/90-unas-slow-start.conf && \
+    sed -i 's/for i in {1..100}$/for i in {1..1200}/' /usr/lib/uid-agent/scripts/service/start.sh && \
+    grep -q 'for i in {1..1200}' /usr/lib/uid-agent/scripts/service/start.sh
 
 # The host keeps the clock in sync (the container cannot set it), but with
 # timesyncd masked timedated reports NTP=no, and unifi-core then refuses to
