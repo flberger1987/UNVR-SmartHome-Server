@@ -124,45 +124,45 @@ UNIT
 
 # Containers that join another container's network (network_mode: service:x)
 # are orphaned when x restarts on its own (e.g. Docker's restart policy after a
-# crash); compose only handles restarts it performs itself. Check every minute.
+# crash); compose only handles restarts it performs itself. A quiet loop checks
+# every minute (a timer would log three lines per minute; logs cost SD writes).
 cat > /usr/local/sbin/unas-netns-guard <<'SH'
 #!/bin/bash
 # Restart containers whose shared network namespace no longer matches its owner.
 export PATH=/usr/local/bin:$PATH
-docker ps --format '{{.Names}}' | while read -r name; do
-    mode=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$name" 2>/dev/null)
-    [[ "$mode" == container:* ]] || continue
-    owner=${mode#container:}
-    pid=$(docker inspect -f '{{.State.Pid}}' "$name")
-    opid=$(docker inspect -f '{{if .State.Running}}{{.State.Pid}}{{end}}' "$owner" 2>/dev/null)
-    [[ -n "$opid" && "$pid" != 0 ]] || continue
-    if [[ "$(readlink /proc/$pid/ns/net)" != "$(readlink /proc/$opid/ns/net)" ]]; then
-        logger -t unas-netns-guard "restarting $name: network namespace of $(docker inspect -f '{{.Name}}' "$owner") changed"
-        docker restart -t 60 "$name" >/dev/null
-    fi
-done
+check() {
+    docker ps --format '{{.Names}}' | while read -r name; do
+        mode=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$name" 2>/dev/null)
+        [[ "$mode" == container:* ]] || continue
+        owner=${mode#container:}
+        pid=$(docker inspect -f '{{.State.Pid}}' "$name")
+        opid=$(docker inspect -f '{{if .State.Running}}{{.State.Pid}}{{end}}' "$owner" 2>/dev/null)
+        [[ -n "$opid" && "$pid" != 0 ]] || continue
+        if [[ "$(readlink /proc/$pid/ns/net)" != "$(readlink /proc/$opid/ns/net)" ]]; then
+            logger -t unas-netns-guard "restarting $name: network namespace of $(docker inspect -f '{{.Name}}' "$owner") changed"
+            docker restart -t 60 "$name" >/dev/null
+        fi
+    done
+}
+sleep 180
+while :; do check; sleep 60; done
 SH
 chmod 755 /usr/local/sbin/unas-netns-guard
+systemctl disable --now unas-netns-guard.timer >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/unas-netns-guard.timer
 cat > /etc/systemd/system/unas-netns-guard.service <<UNIT
 [Unit]
 Description=Re-join containers whose shared network namespace owner restarted
 After=unas-docker.service
-Requires=unas-docker.service
+BindsTo=unas-docker.service
 
 [Service]
-Type=oneshot
 ExecStart=/usr/local/sbin/unas-netns-guard
-UNIT
-cat > /etc/systemd/system/unas-netns-guard.timer <<UNIT
-[Unit]
-Description=Check shared container network namespaces every minute
-
-[Timer]
-OnBootSec=3min
-OnUnitActiveSec=1min
+Restart=always
+RestartSec=60
 
 [Install]
-WantedBy=timers.target
+WantedBy=unas-docker.service
 UNIT
 
 cat > /usr/local/bin/docker <<SH
@@ -199,7 +199,8 @@ if [ -f /run/unas-docker.pid ] && ! systemctl is-active --quiet unas-docker; the
 fi
 systemctl daemon-reload
 systemctl enable --now unas-docker >/dev/null 2>&1
-systemctl enable --now unas-netns-guard.timer >/dev/null 2>&1
+systemctl enable unas-netns-guard.service >/dev/null 2>&1
+systemctl restart unas-netns-guard.service
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
 docker info --format 'docker {{.ServerVersion}}, runtime {{.DefaultRuntime}}, storage {{.Driver}}'
 EOF
