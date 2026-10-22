@@ -56,6 +56,13 @@ for img in $images; do
     echo "saved $img ($(du -h "$f" | cut -f1))"
 done
 
+# drop saved images no stack uses any more
+keep=$(for img in $images; do echo "$(echo "$img" | tr '/:' '__').tar.zst"; done)
+for f in "$B"/images/*.tar.zst; do
+    [ -e "$f" ] || continue
+    grep -qx -F "$(basename "$f")" <<< "$keep" || { rm -f "$f" "$f.id"; echo "removed stale $(basename "$f")"; }
+done
+
 # stack configuration and identities (relative to <pool>/.unas-apps)
 (cd "$A" && tar -cf - --ignore-failed-read \
     data/stacks dockge docker/daemon.json \
