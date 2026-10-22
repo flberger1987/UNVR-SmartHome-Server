@@ -80,7 +80,7 @@ set -euo pipefail
 volume=$(for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && echo "$v" && break; done)
 A="$volume/.unas-apps" B="$DEST/recovery"
 mkdir -p "$B/images" "$B/network"
-z() { nice -n 19 ionice -c3 zstd -T2 -6 -q "$@"; }
+z() { nice -n 19 ionice -c3 zstd -T2 -6 -q -f "$@"; }   # -f: replace leftover .part files
 exec 9>/run/unas-backup.lock; flock -n 9 || { echo 'another unas-backup is running' >&2; exit 1; }
 
 # images of all stacks (also those in optional profiles)
@@ -126,8 +126,10 @@ elif [ -f "$A/backup/SYSTEM.md" ]; then cp -pL "$A/backup/SYSTEM.md" "$B/SYSTEM.
 # LoxBerry's data volume
 lv=$(docker volume inspect -f '{{.Mountpoint}}' unas-apps_loxberry 2>/dev/null || true)
 if [ -n "$lv" ]; then
-    tar -C "$lv" -cf - --warning=no-file-changed . 2>/dev/null \
+    # live volume: tar exits 1 when a file changes while it is read; that is fine
+    { tar -C "$lv" -cf - --warning=no-file-changed . 2>/dev/null || [ $? -eq 1 ]; } \
         | z -o "$B/loxberry-volume.tar.zst.part" && mv "$B/loxberry-volume.tar.zst.part" "$B/loxberry-volume.tar.zst"
+    [ -f "$B/loxberry-volume.tar.zst" ] || echo "WARNING: LoxBerry volume not saved" >&2
 fi
 
 # newest Network backups: UniFi OS container, standalone controller
