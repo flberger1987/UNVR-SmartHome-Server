@@ -238,7 +238,7 @@ authentication) and `set-inform http://<UCKP_IP>:8080/inform`.
 
 | Symptom | Cause | Solution |
 | --- | --- | --- |
-| ~2 GB/day written to the SD card | persistent journal, syslog files, UniFi Drive's notificationManager logs disk iostat events (~80 MB/day), Postgres checkpoints every 5 min, /var/tmp and Samba sockets on the overlay | `install-host-tuning.sh` |
+| ~2 GB/day written to the SD card | persistent journal, syslog files, UniFi Drive's notificationManager logs disk iostat events (~80 MB/day), Postgres checkpoints every 5 min, /var/tmp and Samba sockets on the overlay | `install-host-tuning.sh`: journal in RAM, logs on small tmpfs mounts (16/4 MB upper bounds, RAM used only for content), trimmed every 5 min (rotated files deleted, logs over 2 MB emptied — `logrotate.timer` does not run on this host), Postgres checkpoints every 30 min |
 | everything slow, high iowait | initial RAID 6 resync on HDDs, swap on the same disks | let it finish; for heavy jobs pause it: `echo frozen > /sys/block/md3/md/sync_action`, resume with `echo idle` |
 | swap mirror `md0` shows `[4/2]` | its rebuild waits behind the md3 resync | finishes on its own after md3 (or while md3 is paused) |
 | memory pressure, swap full | 4 GB for Drive, three UniFi OS instances and two controllers during the migration | run one UniFi OS (the UCKP container) and stop the rest; host `earlyoom` kills only below 250 MB RAM and 10 % swap |

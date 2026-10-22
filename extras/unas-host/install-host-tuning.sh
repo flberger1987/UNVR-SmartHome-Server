@@ -16,8 +16,11 @@
 #     /var/log and the app log directories on /data become small tmpfs mounts
 #     (directory skeleton and owners kept); /etc/samba/private/msg.sock too
 #   var-tmp.mount: /var/tmp as tmpfs
-#   unas-log-trim.service: quiet loop, every 10 min deletes rotated logs and
-#     truncates any log over 4 MB in those tmpfs mounts, so RAM use stays small
+#   unas-log-trim.service: quiet loop, every 5 min deletes rotated logs and
+#     truncates any log over 2 MB in those tmpfs mounts (logrotate.timer does
+#     not run on this host), so RAM use stays at a few MB
+#   tmpfs sizes are upper bounds (RAM is used only for content): /var/log and
+#     UniFi Drive's logs 16 MB, other app logs 4 MB each, /var/tmp 32 MB
 #   Postgres (host cluster 14-main): checkpoint every 30 min instead of 5,
 #     WAL compression
 # The RAM mounts take effect at the next reboot; the rest immediately.
@@ -56,12 +59,12 @@ ram() {   # ram <dir> <size>
     tar -C "$d" -xpf "$skel" 2>/dev/null
     rm -f "$skel"
 }
-ram /var/log 32m
-for d in /data/unifi-drive/logs; do ram "$d" 32m; done
+ram /var/log 16m
+for d in /data/unifi-drive/logs; do ram "$d" 16m; done
 for d in /data/ulp-go/log /data/unifi-core/logs /data/ucs-agent/log /data/uid/log \
          /data/ms/logs /data/ds/logs /data/unifi-directory/log /data/unifi-protect/logs \
          /data/ai-feature-console/logs; do
-    ram "$d" 8m
+    ram "$d" 4m
 done
 # Samba creates and deletes a socket per process here
 ram /etc/samba/private/msg.sock 1m
@@ -94,7 +97,7 @@ Description=/var/tmp in RAM (SD card wear)
 What=tmpfs
 Where=/var/tmp
 Type=tmpfs
-Options=mode=1777,size=64m,nosuid,nodev,noatime
+Options=mode=1777,size=32m,nosuid,nodev,noatime
 
 [Install]
 WantedBy=local-fs.target
@@ -102,8 +105,8 @@ UNIT
 
 cat > /usr/local/sbin/unas-log-trim <<'SH'
 #!/bin/bash
-# Keep the RAM log mounts small: every 10 min delete rotated logs and truncate
-# anything over 4 MB. Only touches directories that are tmpfs mounts.
+# Keep the RAM log mounts small: every 5 min delete rotated logs and truncate
+# anything over 2 MB. Only touches directories that are tmpfs mounts.
 dirs="/var/log /data/unifi-drive/logs /data/ulp-go/log /data/unifi-core/logs
       /data/ucs-agent/log /data/uid/log /data/ms/logs /data/ds/logs
       /data/unifi-directory/log /data/unifi-protect/logs /data/ai-feature-console/logs"
@@ -112,9 +115,9 @@ while :; do
         [ -d "$d" ] && [ "$(stat -f -c %T "$d")" = tmpfs ] || continue
         find "$d" -xdev -type f \( -name '*.gz' -o -name '*.[0-9]' -o -name '*.[0-9].log' \
             -o -name '*.old' -o -name '*-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*.log' \) -delete 2>/dev/null
-        find "$d" -xdev -type f -size +4M -exec truncate -s 0 {} + 2>/dev/null
+        find "$d" -xdev -type f -size +2M -exec truncate -s 0 {} + 2>/dev/null
     done
-    sleep 600
+    sleep 300
 done
 SH
 chmod 755 /usr/local/sbin/unas-log-trim
