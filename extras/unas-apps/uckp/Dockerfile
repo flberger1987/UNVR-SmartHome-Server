@@ -62,6 +62,11 @@ RUN mkdir -p /etc/systemd/system/unifi.service.d /etc/systemd/system/uid-agent.s
     sed -i 's/for i in {1..100}$/for i in {1..1200}/' /usr/lib/uid-agent/scripts/service/start.sh && \
     grep -q 'for i in {1..1200}' /usr/lib/uid-agent/scripts/service/start.sh
 
+# dpkg syncs every file to disk; on RAID 6 HDDs installing Protect took ~45 min.
+# Without the syncs a power cut during an app install could damage packages in
+# the container layer; the recovery set's live image covers that.
+RUN echo force-unsafe-io > /etc/dpkg/dpkg.cfg.d/90-unas-unsafe-io
+
 # The host keeps the clock in sync (the container cannot set it), but with
 # timesyncd masked timedated reports NTP=no, and unifi-core then refuses to
 # register for Remote Access ("Timeout when waiting for ClockSynchronized").

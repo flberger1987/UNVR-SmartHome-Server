@@ -71,6 +71,9 @@ tar -C / -cf - --ignore-failed-read $(cd / && ls -d usr/local/sbin/unas-* usr/lo
     etc/postgresql/14/main/conf.d/90-unas-* root/.ssh/authorized_keys 2>/dev/null) 2>/dev/null \
     | z -o "$B/host-files.tar.zst.part" && mv "$B/host-files.tar.zst.part" "$B/host-files.tar.zst"
 
+# private system sheet (addresses, identities, ...), if kept next to the set
+[ -f "$A/backup/SYSTEM.md" ] && cp -p "$A/backup/SYSTEM.md" "$B/SYSTEM.md"
+
 # LoxBerry's data volume
 lv=$(docker volume inspect -f '{{.Mountpoint}}' unas-apps_loxberry 2>/dev/null || true)
 [ -n "$lv" ] && tar -C "$lv" -cf - --warning=no-file-changed . 2>/dev/null \

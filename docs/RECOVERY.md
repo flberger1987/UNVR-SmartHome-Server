@@ -289,6 +289,7 @@ authentication) and `set-inform http://<UCKP_IP>:8080/inform`.
 | UI: IP configuration, fallback IP, SSH have no effect; Shut Down restarts | network, SSH and power services are masked; Docker restarts the container | change the address in the stack's `.env`; **never Factory Reset** (wipes the container's data) |
 | Protect missing after recreating the container | apps live in the container layer, not in the volumes | `backup-unas.sh` commits `<image>-live`; restore uses it |
 | UniFi OS update offered | — | do not update UniFi OS inside the containers; rebuild from newer firmware instead |
+| installing Protect takes ~45 min, "unpacked" for a long time | dpkg syncs every file, slow on RAID 6 HDDs | wait; the image sets `force-unsafe-io` for later installs and updates |
 
 ### Restore under load
 
