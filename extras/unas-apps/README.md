@@ -158,9 +158,23 @@ backup in the new Network app.
 
 Under heavy disk load (RAID resync, swapping) the Network app may start for
 longer than its 15-minute systemd timeout; the image raises it to 45 minutes.
-A restore can fail the same way ("Failed to restore backup", a MongoDB socket
-timeout while it drops the old database): free memory and disk first (stop
-the old controller), then run it again.
+A restore can fail the same way: after the import the app drops its old
+database, MongoDB 3.6 flushes everything to disk first and blocks meanwhile,
+and on RAID 6 HDDs with btrfs that took over three minutes, longer than the
+app's MongoDB timeout ("After-import cleanup failed", "Failed to restore
+backup"). What made it work (2026-10-22):
+
+1. stop the old controller (memory, swap and disk load),
+2. pause a running RAID resync: `echo frozen > /sys/block/md3/md/sync_action`
+   (resume afterwards with `echo idle > ...`; it continues where it stopped),
+3. raise the app's MongoDB timeout for the restore: `db.mongo.timeout=900` in
+   `/data/unifi/data/system.properties` inside the container, then
+   `systemctl restart unifi`. The unit is not milliseconds: 900000 overflows
+   and the app crash-loops at startup ("timeout converted to milliseconds must
+   not be greater than Integer.MAX_VALUE"). Remove the line afterwards.
+
+The backup is first imported into `ace_restore`; if a restore fails, the
+running app keeps an empty `ace`, nothing else is touched.
 
 ## Moving to another network
 
