@@ -18,16 +18,17 @@
 # The container never gets device access: unprivileged, CAP_MKNOD dropped, and
 # the UNVR storage/wipe services are masked in the image (see Dockerfile).
 set -Eeuo pipefail
-usage="usage: $0 root@<UNAS-IP> --ip <PROTECT_IP> [--mac <MAC>] [--size 2T] [--up]"
+usage="usage: $0 root@<UNAS-IP> --ip <PROTECT_IP> [--mac <MAC>] [--size 2T] [--rebuild] [--up]"
 target=${1:?$usage}
 shift
-ip='' mac='02:42:c0:a8:01:05' size='2T' up=false
+ip='' mac='02:42:c0:a8:01:05' size='2T' up=false rebuild=false
 while (( $# )); do
     case "$1" in
         --ip) ip=${2:?$usage}; shift ;;
         --mac) mac=${2:?$usage}; shift ;;
         --size) size=${2:?$usage}; shift ;;
         --up) up=true ;;
+        --rebuild) rebuild=true ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -49,11 +50,14 @@ for f in Dockerfile ubnt-tools ustorage; do
 done
 remote "cat > '$apps/data/stacks/protect/compose.yaml'" < "$here/compose.yaml"
 
-remote "APPS='$apps' IP='$ip' MAC='$mac' SIZE='$size' bash -s" <<'EOF'
+remote "APPS='$apps' IP='$ip' MAC='$mac' SIZE='$size' REBUILD='$rebuild' bash -s" <<'EOF'
 set -euo pipefail
 P="$APPS/protect" B="$APPS/protect-build" S="$APPS/data/stacks/protect"
 chmod 755 "$B/ubnt-tools" "$B/ustorage"
 
+# An existing unvr-protect image (built earlier or loaded from a recovery set)
+# is used as it is; --rebuild builds it again.
+if [ "$REBUILD" = true ] || ! docker image inspect unvr-protect:5.1.33 >/dev/null 2>&1; then
 # base image: the 5.1.33 rootfs this box boots (squashfs on the boot medium)
 if ! docker image inspect unvr-rootfs:5.1.33 >/dev/null 2>&1; then
     m=/run/unvr-rootfs-ro
@@ -68,6 +72,9 @@ if ! docker image inspect unvr-rootfs:5.1.33 >/dev/null 2>&1; then
 fi
 (cd "$B" && DOCKER_BUILDKIT=0 docker build --network none -q -t unvr-protect:5.1.33 . >/dev/null)
 echo "built unvr-protect:5.1.33"
+else
+    echo "using existing image unvr-protect:5.1.33 (--rebuild to build it again)"
+fi
 
 # storage: subvolume without CoW (excluded from pool snapshots), fixed-size ext4
 [ -e "$P" ] || btrfs subvolume create "$P" >/dev/null

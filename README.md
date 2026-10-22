@@ -25,6 +25,11 @@ UNVR's gateway (or pass `--controller-ip`).
 Before you start, check the [runbook](#runbook) below: **remove all drives**,
 and downgrade first if the UNVR runs UniFi OS 6.x.
 
+What runs on the converted box afterwards (Docker, UniFi OS from the Cloud Key
+Gen2 Plus with Network and Protect, LoxBerry, SD card wear reduction) and how
+to rebuild all of it from zero: [docs/RECOVERY.md](docs/RECOVERY.md) and
+[extras/unas-apps/README.md](extras/unas-apps/README.md).
+
 ## Fork changes
 
 Fixes in `convert.sh` and its embedded helpers (readable in [`helpers/`](helpers)):

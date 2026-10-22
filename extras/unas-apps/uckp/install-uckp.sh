@@ -16,16 +16,17 @@
 #   <pool>/.unas-apps/uckp-build/     Dockerfile and the wrappers from ../protect/
 #   <pool>/.unas-apps/data/stacks/uckp/  compose.yaml, .env (shows up in Dockge)
 set -Eeuo pipefail
-usage="usage: $0 root@<UNAS-IP> --ip <IP> [--mac <MAC>] [--size 200G] [--up]"
+usage="usage: $0 root@<UNAS-IP> --ip <IP> [--mac <MAC>] [--size 200G] [--rebuild] [--up]"
 target=${1:?$usage}
 shift
-ip='' mac='02:42:c0:a8:01:06' size='200G' up=false
+ip='' mac='02:42:c0:a8:01:06' size='200G' up=false rebuild=false
 while (( $# )); do
     case "$1" in
         --ip) ip=${2:?$usage}; shift ;;
         --mac) mac=${2:?$usage}; shift ;;
         --size) size=${2:?$usage}; shift ;;
         --up) up=true ;;
+        --rebuild) rebuild=true ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -53,11 +54,14 @@ for f in ubnt-tools ustorage; do
 done
 remote "cat > '$apps/data/stacks/uckp/compose.yaml'" < "$here/compose.yaml"
 
-remote "APPS='$apps' IP='$ip' MAC='$mac' SIZE='$size' FW_URL='$fw_url' FW_SHA256='$fw_sha256' FW_VERSION='$fw_version' bash -s" <<'EOF'
+remote "APPS='$apps' IP='$ip' MAC='$mac' SIZE='$size' REBUILD='$rebuild' FW_URL='$fw_url' FW_SHA256='$fw_sha256' FW_VERSION='$fw_version' bash -s" <<'EOF'
 set -euo pipefail
 P="$APPS/uckp" B="$APPS/uckp-build" S="$APPS/data/stacks/uckp"
 chmod 755 "$B/ubnt-tools" "$B/ustorage"
 
+# An existing uckp-os image (built earlier or loaded from a recovery set) is
+# used as it is; --rebuild builds it again from the firmware.
+if [ "$REBUILD" = true ] || ! docker image inspect uckp-os:6.0.11 >/dev/null 2>&1; then
 # base image: the rootfs (one gzip squashfs inside the .bin)
 if ! docker image inspect uckp-rootfs:6.0.11 >/dev/null 2>&1; then
     fw="$B/UCKP-6.0.11.bin"
@@ -93,6 +97,9 @@ PY
 fi
 (cd "$B" && DOCKER_BUILDKIT=0 docker build --network none -q -t uckp-os:6.0.11 . >/dev/null)
 echo "built uckp-os:6.0.11"
+else
+    echo "using existing image uckp-os:6.0.11 (--rebuild to build it again)"
+fi
 
 # storage: subvolume without CoW (excluded from pool snapshots), fixed-size ext4
 [ -e "$P" ] || btrfs subvolume create "$P" >/dev/null

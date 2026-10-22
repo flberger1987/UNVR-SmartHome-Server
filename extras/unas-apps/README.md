@@ -66,8 +66,22 @@ Other details:
 - The UniFi controller joins MongoDB's network namespace
   (`network_mode: service:unifi-db`), so the database, which rarely restarts,
   owns the LAN address. If Docker's restart policy restarts the owner on its
-  own, the joined container keeps a dead namespace; `unas-netns-guard.timer`
-  checks every minute and restarts such containers.
+  own, the joined container keeps a dead namespace; `unas-netns-guard`
+  (a quiet loop service) checks every minute and restarts such containers.
+
+## Backup and recovery
+
+The complete rebuild, every recovery scenario and all pitfalls are in
+[docs/RECOVERY.md](../../docs/RECOVERY.md). In short:
+
+```bash
+extras/unas-apps/backup-unas.sh root@<UNAS-IP>    # recovery set on the pool
+extras/unas-apps/restore-unas.sh root@<UNAS-IP>   # load it back (after install-on-unas.sh)
+```
+
+The recovery set holds the finished images (the UniFi OS containers as
+`<image>-live`, with the apps installed inside them), the stack configuration
+with the console identities, LoxBerry's volume and the newest Network backups.
 
 ## Restoring a controller backup
 
