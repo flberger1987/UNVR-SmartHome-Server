@@ -1,7 +1,9 @@
 #!/bin/bash
 # Bring the apps back from a recovery set made by backup-unas.sh (run on the Mac).
 #
-#   extras/unas-apps/restore-unas.sh root@<UNAS-IP> [--set <dir on the UNAS>]
+#   extras/unas-apps/restore-unas.sh root@<UNAS-IP> [--set <dir on the UNAS>] [--check]
+#
+#   --check   only verify the set (checksums, every archive decompresses), change nothing
 #
 # Order (docs/RECOVERY.md): converted UNAS with a storage pool, host tuning,
 # install-on-unas.sh (Docker), then this script, then install-uckp.sh /
@@ -11,30 +13,39 @@
 # Default set: <pool>/.unas-apps/backup/recovery. After rebuilding the pool,
 # copy the set back to that place first. Existing files are never overwritten.
 set -Eeuo pipefail
-usage="usage: $0 root@<UNAS-IP> [--set <dir on the UNAS>]"
+usage="usage: $0 root@<UNAS-IP> [--set <dir on the UNAS>] [--check]"
 target=${1:?$usage}
 shift
-set_dir=''
+set_dir='' check=false
 while (( $# )); do
     case "$1" in
         --set) set_dir=${2:?$usage}; shift ;;
+        --check) check=true ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
 remote() { ssh -o BatchMode=yes ${UNAS_SSH_CONFIG:+-F "$UNAS_SSH_CONFIG"} "$target" "$@"; }
 
-remote "SET='$set_dir' bash -s" <<'EOF'
+remote "SET='$set_dir' CHECK='$check' bash -s" <<'EOF'
 set -euo pipefail
 volume=$(for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && echo "$v" && break; done)
 [ -n "$volume" ] || { echo 'no mounted storage pool; create one in UniFi Drive first' >&2; exit 1; }
 A="$volume/.unas-apps"
 B=${SET:-$A/backup/recovery}
 [ -f "$B/SHA256SUMS" ] || { echo "no recovery set in $B" >&2; exit 1; }
-docker info >/dev/null 2>&1 || { echo 'Docker is not running; run install-on-unas.sh first' >&2; exit 1; }
 
 echo "checking $B"
-(cd "$B" && sha256sum -c --quiet SHA256SUMS)
+(cd "$B" && sha256sum -c --quiet SHA256SUMS) && echo "checksums OK ($(wc -l < "$B/SHA256SUMS") files)"
+if [ "$CHECK" = true ]; then
+    for f in "$B"/*.tar.zst "$B"/images/*.tar.zst; do
+        [ -e "$f" ] || continue
+        zstd -t -q "$f" && echo "  ok  $(basename "$f") ($(du -h "$f" | cut -f1))"
+    done
+    head -n 3 "$B/MANIFEST.txt"
+    exit 0
+fi
+docker info >/dev/null 2>&1 || { echo 'Docker is not running; run install-on-unas.sh first' >&2; exit 1; }
 
 # The UniFi OS containers' directories are Btrfs subvolumes without
 # copy-on-write (outside pool snapshots); create them before unpacking into them.
@@ -72,6 +83,7 @@ echo "Network backups in $B/network (restore one in the Network app if its data 
 ls -1t "$B"/network/*.unf 2>/dev/null | head -3 || true
 EOF
 
+[[ "$check" == true ]] && exit 0
 cat <<'TXT'
 
 Next:

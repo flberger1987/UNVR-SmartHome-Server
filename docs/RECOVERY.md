@@ -61,6 +61,9 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | SD card image | `unas-backup --sd-image` (or `backup-unas.sh … --sd-image`) | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`) | after host changes |
 | Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set) | Git | — |
 
+Check a set without changing anything (checksums, every archive
+decompresses): `extras/unas-apps/restore-unas.sh root@<UNAS> --check`.
+
 The recovery set is on the same disks as the apps. It covers a lost, reset or
 replaced boot medium; the loss of the RAID needs the off-box copy (or the
 cloud backup plus a rebuild from sources). Stable file names let the cloud
@@ -213,6 +216,12 @@ each device: `ssh <user>@<device>` (credentials: Network app → device SSH
 authentication) and `set-inform http://<UCKP_IP>:8080/inform`.
 
 ### 10. Check
+
+Verified on 2026-10-23 after a reboot with host tuning active: log RAM disks
+mounted (about 4 MB in use), UniFi OS started from `uckp-os:live` with Network
+and Protect in four minutes, all adopted devices reported again about two
+minutes after the Network app was ready (they back off while the controller
+is away), Remote Access connected, RAID resync resumed where it stopped.
 
 - `https://<UCKP_IP>/`: UniFi OS up, Remote Access on, devices online.
 - Inside: `docker exec unifi-os systemctl --failed` shows at most
