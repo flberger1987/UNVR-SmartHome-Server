@@ -56,5 +56,17 @@ COPY ustorage /usr/bin/ustorage
 RUN mkdir -p /etc/systemd/system/unifi.service.d && \
     printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi.service.d/90-unas-slow-start.conf
 
+# The host keeps the clock in sync (the container cannot set it), but with
+# timesyncd masked timedated reports NTP=no, and unifi-core then refuses to
+# register for Remote Access ("Timeout when waiting for ClockSynchronized").
+# A no-op unit registered as the NTP service makes NTP=yes; NTPSynchronized
+# still reflects the real kernel clock state.
+RUN mkdir -p /usr/lib/systemd/ntp-units.d && \
+    echo unas-host-time.service > /usr/lib/systemd/ntp-units.d/50-unas-host-time.list && \
+    printf '%s\n' '[Unit]' 'Description=Clock synchronised by the UNAS host (the container cannot set it)' '' \
+        '[Service]' 'Type=oneshot' 'RemainAfterExit=yes' 'ExecStart=/bin/true' '' \
+        '[Install]' 'WantedBy=multi-user.target' > /etc/systemd/system/unas-host-time.service && \
+    ln -sf /etc/systemd/system/unas-host-time.service /etc/systemd/system/multi-user.target.wants/unas-host-time.service
+
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
