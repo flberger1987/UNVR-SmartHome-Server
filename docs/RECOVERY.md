@@ -86,6 +86,23 @@ unencrypted (decided for this installation): the Network backups in it hold
 Wi-Fi passwords and device credentials, the Protect backups the private key
 cameras trust, so the cloud account must be protected accordingly.
 
+Restore drill (LoxBerry, 2026-10-24, with that night's set; the live
+container untouched): on the UNAS `loxberry-volume.tar.zst` unpacked into a
+scratch directory on the pool (86 MB); `images/loxberry-unas_live.tar.zst`
+loaded under another tag in about 2 minutes, with exactly the saved image ID
+(`RepoTags` in the tar's `manifest.json`, `index.json` and `repositories`
+rewritten in the stream: a plain `docker load` re-tags `loxberry-unas:live`,
+which the stack runs); a container with the options of the loxberry service in
+`docker-compose.yml`, but another name, `--network none`, the scratch
+directory as `/opt/loxberry` and `systemd-udev-trigger`, `systemd-sysctl` and
+`systemd-modules-load` masked (they act on the host kernel). Result: systemd
+`running` after 100 s without failed units; Apache, Mosquitto, cron, the MQTT
+gateway and the plugin services active; LoxBerry 4.0.0.15; every plugin
+(Alexa2Lox, Dreame, Daikin Onecta, ConnectLife, Intercom) with its programs,
+web pages and settings; the MQTT gateway's subscriptions and the broker login
+present; under 100 MB of memory. Container, tag and directory removed
+afterwards. Repeat it after larger LoxBerry changes.
+
 ## Recovery scenarios
 
 | Situation | Path |
