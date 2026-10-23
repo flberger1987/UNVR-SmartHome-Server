@@ -19,6 +19,9 @@ remote "docker exec -i $c sh -c 'umask 077; cat > /root/.lb-plugin.sh'" <<'SH'
 set -eu
 IFS= read -r pin
 url=$1
+# LoxBerry's tools need its environment (PERL5LIB, LB* paths); docker exec
+# does not read /etc/environment
+set -a; . /etc/environment; set +a
 z=$(mktemp /tmp/plugin-XXXXXX.zip)
 curl -fsSL -m 300 -o "$z" "$url"
 echo "downloaded $(du -h "$z" | cut -f1)"

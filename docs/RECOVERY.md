@@ -286,6 +286,8 @@ is away), Remote Access connected, RAID resync resumed where it stopped.
 | `dietpi` user missing, PHP 7.4 repo key fails | container base lacks them | created in the Dockerfile, `gnupg` added |
 | default password is public | — | change it; SSH for `loxberry` with keys only |
 | changing the password in the web interface fails | it asks for the old password and SecurePIN; the installer in the image build set random ones | `loxberry/set-passwords.sh` sets them as root in the container |
+| LoxBerry tools fail via `docker exec`: `Can't locate LoxBerry/System.pm in @INC` | `docker exec` does not read `/etc/environment` (`PERL5LIB`, `LB*` paths) | `set -a; . /etc/environment; set +a` first (the scripts do) |
+| MQTT broker open to the LAN without login (`allow_anonymous true`) | LoxBerry's MQTT basics were never saved, so no broker user exists | `loxberry/shelly-mqtt.sh` sets user and password and runs `mqtt-handler.pl action=mosquitto_set`; it checks that anonymous logins are refused |
 
 ### UniFi OS in a container (Cloud Key Gen2 Plus)
 

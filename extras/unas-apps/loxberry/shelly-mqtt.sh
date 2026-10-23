@@ -49,10 +49,18 @@ if not any(s.get("id") == "shellies/#" for s in subs):
 json.dump(c, open(g + ".new", "w"), indent=1)
 os.replace(g + ".new", g)
 '
-docker exec loxberry sh -c 'chown loxberry:loxberry /opt/loxberry/config/system/general.json /opt/loxberry/config/system/mqttgateway.json; chmod 600 /opt/loxberry/config/system/mqttgateway.json
-    perl /opt/loxberry/sbin/mqtt-handler.pl action=mosquitto_set >/dev/null 2>&1
-    perl /opt/loxberry/sbin/mqtt-handler.pl action=restartgateway >/dev/null 2>&1
-    sleep 3; ss -tln | grep -q ":1883 " && echo "LoxBerry: broker open on port 1883 (login required)" || echo "LoxBerry: broker NOT listening"'
+# LoxBerry's tools need its environment (PERL5LIB, LB* paths); docker exec
+# does not read /etc/environment. restartgateway ends with a harmless
+# "Can't call method write" from LoxBerry's own END block.
+docker exec loxberry bash -c 'set -a; . /etc/environment; set +a
+    chown loxberry:loxberry /opt/loxberry/config/system/general.json /opt/loxberry/config/system/mqttgateway.json
+    chmod 600 /opt/loxberry/config/system/mqttgateway.json
+    perl /opt/loxberry/sbin/mqtt-handler.pl action=mosquitto_set >/tmp/mqtt-handler.out 2>&1 || { tail -5 /tmp/mqtt-handler.out; exit 1; }
+    perl /opt/loxberry/sbin/mqtt-handler.pl action=restartgateway >/dev/null 2>&1 || true
+    sleep 4
+    grep -q "^allow_anonymous false" /etc/mosquitto/conf.d/mosq_mqttgateway.conf || { echo "LoxBerry: broker still allows anonymous access"; exit 1; }
+    if timeout 8 mosquitto_sub -h localhost -t "#" -C 1 -W 5 >/dev/null 2>&1; then echo "LoxBerry: broker accepts anonymous logins"; exit 1; fi
+    ss -tln | grep -q ":1883 " && echo "LoxBerry: broker on port 1883, login required (anonymous refused)"'
 # 2. Shellys
 for ip in "$@"; do
     info=$(curl -s -m 8 "http://$ip/rpc/Shelly.GetDeviceInfo") || { echo "$ip: not reachable"; continue; }
