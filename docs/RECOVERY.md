@@ -36,6 +36,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | Docker, macvlan, app stack | `extras/unas-apps/install-on-unas.sh` | [extras/unas-apps/README.md](../extras/unas-apps/README.md) |
 | UniFi OS (Network + Protect) | `extras/unas-apps/uckp/install-uckp.sh` | [README section](../extras/unas-apps/README.md#unifi-os-as-a-cloud-key-gen2-plus) |
 | Recovery set | `extras/unas-apps/backup-unas.sh`, `restore-unas.sh` | [below](#backups) |
+| Health monitor, Telegram alerts | `extras/unas-host/install-monitor.sh` | [below](#11-monitoring-telegram) |
 
 ## What is stored where
 
@@ -44,7 +45,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | SD card `boot1/2` | kernel, signed rootfs (UNVR 5.1.33) | — |
 | SD card `boot3` = `/data` | host UniFi OS state: UniFi Drive (Postgres), users, shares, settings | reboots |
 | SD card `boot4` = `/var/log` | host logs — **replaced by a RAM mount at boot** (host tuning) | — |
-| SD card `boot5` = overlay | host `/etc`, `/usr/local`, `/root` changes (units, scripts, SSH keys) | reboots |
+| SD card `boot5` = overlay | host `/etc`, `/usr/local`, `/root` changes (units, scripts, SSH keys, the monitor's Telegram token) | reboots |
 | RAID pool | shares, `.unas-apps` (Docker, images, all app data, backups) | SD card loss |
 | RAM | journal, logs, `/var/tmp`, container tmpfs | nothing |
 | Ubiquiti cloud | UniFi OS console backups (Remote Access on), UI account | everything local |
@@ -59,7 +60,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | UniFi Network | autobackup in the Network app (set: daily 03:00, keep 7) | inside UniFi OS, newest two in the recovery set | daily |
 | UniFi OS console (Network, Protect settings, users) | cloud backup (needs Remote Access) | Ubiquiti cloud | daily |
 | SD card image | `unas-backup --sd-image` (or `backup-unas.sh … --sd-image`) | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`) | after host changes |
-| Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set) | Git | — |
+| Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set; the monitor's Telegram token is in no backup) | Git | — |
 
 Check a set without changing anything (checksums, every archive
 decompresses): `extras/unas-apps/restore-unas.sh root@<UNAS> --check`.
@@ -102,6 +103,8 @@ The pool still holds Docker, every image, container and app data.
 4. `extras/unas-apps/install-on-unas.sh root@<UNAS>` — reinstalls the Docker
    service and units pointing at the existing data on the pool.
    Then `--up` (or just reboot): all containers come back with their data.
+5. Rebuilt without an image (path 2): `extras/unas-host/install-monitor.sh root@<UNAS> --telegram --test`
+   — the Telegram token is in no backup, enter it again ([step 11](#11-monitoring-telegram)).
 
 ### B. Everything lost
 
@@ -119,6 +122,7 @@ The pool still holds Docker, every image, container and app data.
    with the old identity. Restore the console backup from the cloud in the
    setup wizard, or set it up and restore the newest Network `.unf` from the
    set ([step 8](#8-unifi-os-cloud-key-gen2-plus)).
+7. Monitoring: [step 11](#11-monitoring-telegram).
 
 ### C. One app broken
 
@@ -242,7 +246,64 @@ Shellys reconnected to the broker and the gateway kept forwarding.
   "NTP service: active".
 - `cat /proc/mdstat` on the host: arrays clean or resyncing; `free -m`: swap use
   low.
+- `unas-monitor --status` on the host (after step 11): every check of the
+  monitor, "Ergebnis: 0 Problem(e)".
 - Make a recovery set and copy it off-box.
+
+### 11. Monitoring (Telegram)
+
+`extras/unas-host/install-monitor.sh root@<UNAS> --telegram --test` installs
+`unas-monitor` on the host with a timer (every 5 minutes, Nice 19). It sends a
+Telegram message (German, with host name and time) when something is down or
+abnormal — once it was seen in two runs in a row (no flapping), again every
+6 hours while it lasts, and "wieder OK" when it is gone. Without `--telegram`
+it only logs to the journal.
+
+1. Bot: in Telegram open **@BotFather**, `/newbot`, choose a name and a
+   username ending in `bot`. BotFather answers with the token
+   (`123456789:AA…`).
+2. Mac: `install-monitor.sh root@<UNAS> --telegram --test`, paste the token
+   (input hidden). When asked, open the new bot in Telegram and send it any
+   message (tap *Start*), then press Enter: the UNAS takes the chat from the
+   bot's newest message (`getUpdates`). Typing a chat id works too (groups:
+   negative number). `--test` sends a message with the current state.
+3. Run the same command again to change the token or the chat.
+
+Token and chat id live only in `/etc/unas-monitor.conf` on the host (root,
+mode 600, SD overlay). They travel from the Mac over stdin, curl reads its
+configuration (URL with the token) from stdin, `backup-unas.sh` excludes the
+file: never in this repository, on a command line, in a log or in the recovery
+set. The same file takes optional settings (all of them: the head of
+`/usr/local/sbin/unas-monitor`), e.g. `IGNORE_CONTAINERS="<name>"` for a stack
+stopped on purpose, `IGNORE_FAILED`, `GRACE_MIN`, `GRACE_MIN_UNIFI_OS`,
+`DISK_MAX_PCT`, `TEMP_MAX_C`.
+
+On the host: `unas-monitor --status` (every check, sends nothing),
+`--dry-run` (a timer run that prints the message instead of sending it; own
+state), `--test`, `journalctl -u unas-monitor`. To try an alarm without
+stopping anything, add a check for something that does not exist:
+`unas-monitor --dry-run --simulate container:ghost` (also `unit:<unit>`,
+`unit:<container>/<unit>`) twice gives the alert, a plain `--dry-run` then
+"wieder OK".
+
+What it checks — read-only, it never starts, stops or changes anything:
+
+| Where | Checks |
+| --- | --- |
+| Host | `systemctl --failed`; `unas-docker`, `unas-netns-guard`, `unas-volatile-logs`, `unas-log-trim`, `var-tmp.mount`, `unas-backup.timer` (when enabled) active and enabled; UniFi OS/Drive: `unifi-core`, `unifi-drive`, `unifi-directory`, `ulp-go`, `uos-agent`, `unifi-identity-update`, `postgresql@14-main`, `nginx`, `smbd`, `ssh`, `usd`, `ustated`, `usdbd`, `uhwd`, `rclone-rcd`, `earlyoom`, `cron`, journald, timesyncd; restart loops; UniFi OS state (`/api/system`); NTP sync |
+| Storage | an array degraded or a member faulty (a resync or check is shown, never an alarm); pool mounted and writable; Btrfs error counters; pool, `/`, `/data` (SD card) and `/run` at 90 % |
+| Hardware | less than 150 MB memory available, swap at 90 %; a temperature at 90 °C or a sensor alarm; a fan that stops while the fans are driven |
+| Containers | every container the stacks deploy (`docker compose config` of `data/stacks/*` and `dockge/`; services in inactive profiles such as the standalone controller are not expected) exists, runs, is not restarting or unhealthy, has no restart loop and still has its network interface; Docker answers |
+| UniFi OS | `unifi-core`, `unifi` (Network), `unifi-protect`, `mongodb`, `unifi-mongodb`, `postgresql@14-main`/`14-protect`, `nginx`, `ulp-go`, `unifi-directory`; failed units (except `analytic-report`); Network `/status` (server running, database connected); UniFi OS state and, with Remote Access on, the cloud connection; Protect `controllerStatus` READY |
+| LoxBerry | `apache2`, `mosquitto`, `cron`, `loxberry` and every other enabled service (plugin daemons such as Daikin Onecta); the MQTT gateway process (`mqttgateway.pl`); the web interface answers; failed units |
+
+Right after a boot, a container start or a unit start, something that is not
+up yet counts as starting: 15 minutes, UniFi OS 60 minutes (Protect's
+migrations take up to ~45). A unit still activating after that is reported.
+Checks inside containers use `docker exec` — the host cannot reach the macvlan
+addresses. Nothing is written to the SD card: state in `/run/unas-monitor`
+(gone after a reboot; the first run after a boot sends a short notice),
+output in the journal (RAM). A run takes 4–8 seconds.
 
 ## Pitfalls and solutions
 
@@ -338,6 +399,18 @@ Shellys reconnected to the broker and the gateway kept forwarding.
 | "After-import cleanup failed" / "Failed to restore backup" | dropping the old database blocks MongoDB 3.6 for > 3 min on RAID 6 HDDs (fsync), the app's MongoDB timeout is 3 min | stop other controllers, pause the RAID resync, set `db.mongo.timeout=900` in `/data/unifi/data/system.properties` (inside the container), `systemctl restart unifi`, restore again, remove the line |
 | crash loop after setting the timeout | the value is not in milliseconds (`900000` overflows) | use `900` |
 | failed restore | — | nothing is lost: the running app keeps an empty `ace`, the backup stays in `ace_restore` until the next attempt |
+
+### Monitoring
+
+| Symptom | Cause | Solution |
+| --- | --- | --- |
+| Protect's `errors.log` grows with `401 GET /api/ Unauthorized` | an unauthenticated health request is logged as an error (4 lines per request) | ask `/api/ucore/status` instead (what `unifi-core` polls; `controllerStatus`) |
+| `analytic-report.service` failed in UniFi OS | usage reports; fails on every start, not needed | ignored by default (`IGNORE_FAILED`) |
+| UniFi OS `deviceState` is `setup` or `updateAvailable` | normal states | only `error` or an error code alarms |
+| reminder every 6 h after a failed weekly backup | `unas-backup.service` stays failed until its next run | `journalctl -u unas-backup`, fix, then `systemctl reset-failed unas-backup` |
+| a stack stopped on purpose alarms | every container the stacks deploy is expected | `IGNORE_CONTAINERS="<name>"` in `/etc/unas-monitor.conf` |
+| `--telegram`: "Keine Nachricht an @… gefunden" | no message to the bot in the last 24 h (or the bot has a webhook) | send the bot a message and run again, or type the chat id |
+| no message while the internet is down | Telegram unreachable | the monitor retries every run; the alert or "wieder OK" follows once it is back |
 
 ### Optional: UNVR Protect container
 
