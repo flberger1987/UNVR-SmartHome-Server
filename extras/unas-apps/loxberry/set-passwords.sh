@@ -16,17 +16,20 @@ c=${2:-loxberry}
 remote() { ssh -o BatchMode=yes ${UNAS_SSH_CONFIG:+-F "$UNAS_SSH_CONFIG"} "$target" "$@"; }
 die() { echo "$*" >&2; exit 2; }
 
-read -r -s -p 'New LoxBerry password: ' pw; echo
-read -r -s -p 'Repeat password: ' pw2; echo
-[[ "$pw" == "$pw2" ]] || die 'passwords differ'
-(( ${#pw} >= 8 )) || die 'password too short (min. 8)'
-[[ "$pw" =~ ^[^\'\"\\[:space:]]+$ ]] || die "no quotes, backslashes or spaces (LoxBerry's scripts cannot handle them)"
+read -r -s -p 'New LoxBerry password (Enter = keep the current one): ' pw; echo
+if [[ -n "$pw" ]]; then
+    read -r -s -p 'Repeat password: ' pw2; echo
+    [[ "$pw" == "$pw2" ]] || die 'passwords differ'
+    (( ${#pw} >= 8 )) || die 'password too short (min. 8)'
+    [[ "$pw" =~ ^[^\'\"\\[:space:]]+$ ]] || die "no quotes, backslashes or spaces (LoxBerry's scripts cannot handle them)"
+fi
 read -r -s -p 'New SecurePIN (4-10 letters/digits, Enter = keep the current one): ' pin; echo
 if [[ -n "$pin" ]]; then
     read -r -s -p 'Repeat SecurePIN: ' pin2; echo
     [[ "$pin" == "$pin2" ]] || die 'PINs differ'
     [[ "$pin" =~ ^[A-Za-z0-9]{4,10}$ ]] || die 'SecurePIN: 4-10 letters or digits'
 fi
+[[ -n "$pw" || -n "$pin" ]] || die 'nothing to change'
 
 # helper inside the container; the secrets follow on its stdin
 remote "docker exec -i $c sh -c 'umask 077; cat > /root/.lb-setpw.sh'" <<'SH'
@@ -34,17 +37,21 @@ set -eu
 IFS= read -r pw
 IFS= read -r pin || true
 h=/opt/loxberry/config/system
-printf 'loxberry:%s\n' "$pw" | chpasswd -c SHA512
-printf '%s\n%s\n' "$pw" "$pw" | smbpasswd -a -s loxberry >/dev/null 2>&1 || echo "Samba password not set (Samba not in use)"
-printf '%s\n' "$pw" | htpasswd -i -c "$h/htusers.dat" loxberry 2>/dev/null
-chown loxberry:loxberry "$h/htusers.dat"; chmod 600 "$h/htusers.dat"
+if [ -n "$pw" ]; then
+    printf 'loxberry:%s\n' "$pw" | chpasswd -c SHA512
+    printf '%s\n%s\n' "$pw" "$pw" | smbpasswd -a -s loxberry >/dev/null 2>&1 || echo "Samba password not set (Samba not in use)"
+    printf '%s\n' "$pw" | htpasswd -i -c "$h/htusers.dat" loxberry 2>/dev/null
+    chown loxberry:loxberry "$h/htusers.dat"; chmod 600 "$h/htusers.dat"
+fi
 if [ -n "$pin" ]; then
     printf '%s\n' "$pin" | perl -e '@c=("a".."z","A".."Z",0..9,".","/"); $s=$c[rand @c].$c[rand @c]; $p=<STDIN>; chomp $p; print crypt($p,$s)' > "$h/securepin.dat.new"
     mv "$h/securepin.dat.new" "$h/securepin.dat"; chown loxberry:loxberry "$h/securepin.dat"; chmod 644 "$h/securepin.dat"
 fi
 # checks (same methods as LoxBerry)
-printf '%s\n' "$pw" | htpasswd -v -i "$h/htusers.dat" loxberry >/dev/null 2>&1 && echo "web interface password: OK" || echo "web interface password: FAILED"
-printf '%s\n' "$pw" | perl -e '$p=<STDIN>; chomp $p; $h=(getpwnam("loxberry"))[1]; exit(crypt($p,$h) eq $h ? 0 : 1)' && echo "system password: OK" || echo "system password: FAILED"
+if [ -n "$pw" ]; then
+    printf '%s\n' "$pw" | htpasswd -v -i "$h/htusers.dat" loxberry >/dev/null 2>&1 && echo "web interface password: OK" || echo "web interface password: FAILED"
+    printf '%s\n' "$pw" | perl -e '$p=<STDIN>; chomp $p; $h=(getpwnam("loxberry"))[1]; exit(crypt($p,$h) eq $h ? 0 : 1)' && echo "system password: OK" || echo "system password: FAILED"
+fi
 if [ -n "$pin" ]; then
     printf '%s\n' "$pin" | perl -e '$p=<STDIN>; chomp $p; open F,"<","/opt/loxberry/config/system/securepin.dat"; $s=<F>; chomp $s; exit(crypt($p,$s) eq $s ? 0 : 1)' && echo "SecurePIN: OK" || echo "SecurePIN: FAILED"
 fi

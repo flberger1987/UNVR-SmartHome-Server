@@ -4,7 +4,9 @@
 #   extras/unas-apps/loxberry/install-plugin.sh root@<UNAS-IP> <zip-url> [container]
 #
 # Same as Plugin Management in the web interface: LoxBerry's plugininstall.pl,
-# which asks for the SecurePIN (typed here, not echoed).
+# which asks for the SecurePIN (typed here, not echoed). plugininstall.pl only
+# takes it as a command-line parameter, so it is visible in the container's
+# process list while the install runs; change the PIN afterwards if that matters.
 set -Eeuo pipefail
 usage="usage: $0 root@<UNAS-IP> <zip-url> [container]"
 target=${1:?$usage}; url=${2:?$usage}; c=${3:-loxberry}
