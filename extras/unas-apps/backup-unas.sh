@@ -14,7 +14,7 @@
 #
 # On the UNAS afterwards: unas-backup [--sd-image]. Result in <dest>/recovery/
 # (images that did not change since the last run are skipped):
-#   images/<image>.tar.zst      docker save of each image the stacks use;
+#   images/<image>.tar.zst      docker save of each image the stacks deploy;
 #                               UniFi OS installs its apps (Protect, Network
 #                               updates) into the container layer, so the UniFi
 #                               OS stacks run <image>:live and the running
@@ -83,8 +83,13 @@ mkdir -p "$B/images" "$B/network"
 z() { nice -n 19 ionice -c3 zstd -T2 -6 -q -f "$@"; }   # -f: replace leftover .part files
 exec 9>/run/unas-backup.lock; flock -n 9 || { echo 'another unas-backup is running' >&2; exit 1; }
 
-# images of all stacks (also those in optional profiles)
-images=$(sed -n 's/^ *image: *\([^ #"]*\).*/\1/p' "$A"/data/stacks/*/compose.yaml "$A"/dockge/compose.yaml | sort -u)
+# images the stacks deploy (services in inactive profiles, e.g. the optional
+# standalone controller, are left out; set COMPOSE_PROFILES in a stack's .env
+# to include them)
+images=$(for s in "$A"/data/stacks/*/ "$A"/dockge/; do
+    [ -f "$s/compose.yaml" ] || continue
+    (cd "$s" && docker compose config --images 2>/dev/null) || echo "WARNING: cannot read $s/compose.yaml" >&2
+done | sort -u)
 # UniFi OS containers: freeze the container layer (installed apps) into the
 # :live image their stack runs
 for c in unifi-os unifi-protect; do
