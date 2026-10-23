@@ -23,6 +23,7 @@
 #   config.tar.zst              stacks (compose.yaml, .env, resolv.conf), Dockge,
 #                               identities of the UniFi OS containers, daemon.json
 #   host-files.tar.zst          host units/scripts/settings, for reference
+#                               (never /etc/unas-monitor.conf: Telegram token)
 #   loxberry-volume.tar.zst     LoxBerry's /opt/loxberry volume
 #   network/                    newest UniFi Network backups (.unf)
 #   SYSTEM.md                   private system sheet, if kept as <dest>/SYSTEM.md
@@ -119,8 +120,9 @@ done
     $(ls -d uckp/system.info uckp/board.info uckp/mtd protect/system.info protect/board.info 2>/dev/null) \
     ) | z -o "$B/config.tar.zst.part" && mv "$B/config.tar.zst.part" "$B/config.tar.zst"
 
-# host files for reference (recreated by the install scripts)
-tar -C / -cf - --ignore-failed-read $(cd / && ls -d usr/local/sbin/unas-* usr/local/bin/docker \
+# host files for reference (recreated by the install scripts); the monitor's
+# conf holds the Telegram bot token and stays out (the set is unencrypted)
+tar -C / -cf - --ignore-failed-read --exclude=etc/unas-monitor.conf $(cd / && ls -d usr/local/sbin/unas-* usr/local/bin/docker \
     etc/systemd/system/unas-* etc/systemd/system/var-tmp.mount etc/systemd/journald.conf.d/90-unas-* \
     etc/postgresql/14/main/conf.d/90-unas-* etc/unas-backup.conf root/.ssh/authorized_keys 2>/dev/null) 2>/dev/null \
     | z -o "$B/host-files.tar.zst.part" && mv "$B/host-files.tar.zst.part" "$B/host-files.tar.zst"
