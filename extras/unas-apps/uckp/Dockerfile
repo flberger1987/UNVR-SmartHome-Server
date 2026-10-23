@@ -36,9 +36,12 @@ RUN set -e; \
         ssh.service ssh.socket sysstat.service apt-daily.timer apt-daily-upgrade.timer \
         systemd-firstboot.service; \
     do ln -sf /dev/null "$unit"; done; \
-    # boot hooks that reorganise partitions or /srv (data partition backup, srv links)
-    hooks=/usr/lib/ubnt/hooks/system/bootup-top; \
-    rm -f "$hooks/01-bootup_top_wa.sh" "$hooks/10-srv-link" "$hooks/10-scan-dot-srv"; \
+    # boot hooks that reorganise partitions or /srv: data partition backup, srv
+    # links. srv-gen ("remove unexpected /srv folder") wipes the volume on every
+    # start because UniFi OS sees no disk -- Protect's database and recordings.
+    hooks=/usr/lib/ubnt/hooks/system; \
+    rm -f "$hooks/bootup-top/01-bootup_top_wa.sh" "$hooks/bootup-top/10-srv-link" "$hooks/bootup-top/10-scan-dot-srv" \
+          "$hooks/bootup-bottom/50-srv-link" "$hooks/bootup-bottom/10-scan-dot-srv"; \
     mv /sbin/ubnt-tools /sbin/ubnt-tools.real; \
     mv /usr/bin/ustorage /usr/bin/ustorage.real; \
     mkdir -p /data /persistent /srv /var/opt/unifi-protect/tmp; \
