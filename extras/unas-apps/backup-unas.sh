@@ -26,6 +26,11 @@
 #                               (never /etc/unas-monitor.conf: Telegram token)
 #   loxberry-volume.tar.zst     LoxBerry's /opt/loxberry volume
 #   network/                    newest UniFi Network backups (.unf)
+#   protect/                    two newest UniFi Protect backups (.zip: settings,
+#                               users, device certificate; no video)
+#   unifi-os/                   two newest UniFi OS console backups (.unifi:
+#                               console, users and every app; encrypted for the
+#                               console owner) with their .metadata.json
 #   SYSTEM.md                   private system sheet, if kept as <dest>/SYSTEM.md
 #   MANIFEST.txt, SHA256SUMS
 # and with --sd-image <dest>/sd-card/sd-boot.img.zst (+ .sha256, .sfdisk, .date).
@@ -147,6 +152,30 @@ for d in "$A"/uckp/data/unifi/data/backup/autobackup "$A"/data/unifi-network-app
 done
 { ls -t "$B"/network/*.unf 2>/dev/null || true; } | tail -n +7 | xargs -r rm -f
 
+# newest Protect backups (Protect writes one after settings changes) and
+# UniFi OS console backups (its schedule or "Backup Now"); the original names
+# stay, UniFi OS tells the backup type from them when one is uploaded
+mkdir -p "$B/protect" "$B/unifi-os"
+{ ls -t "$A"/uckp/srv/unifi-protect/backups/unifi_protect_backup*.zip 2>/dev/null || true; } | head -2 \
+    | while read -r f; do cp -p "$f" "$B/protect/"; done
+{ ls -t "$B"/protect/*.zip 2>/dev/null || true; } | tail -n +3 | xargs -r rm -f
+{ ls -t "$A"/uckp/data/unifi-core/local-backups/*/*.unifi 2>/dev/null || true; } | head -2 | while read -r f; do
+    cp -p "$f" "$B/unifi-os/"
+    m="$(dirname "$f")/metadata.json"
+    if [ -f "$m" ]; then cp -p "$m" "$B/unifi-os/$(basename "$f" .unifi).metadata.json"; fi
+done
+{ ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | tail -n +3 | while read -r f; do rm -f "$f" "${f%.unifi}.metadata.json"; done
+# what a console backup holds (an app whose export failed is missing in it)
+console_apps() {
+    jq -r '[(.controllers // {}), (.services // {}) | to_entries[] | "\(.key) \(if .value.success then "ok" else "FAILED" end)"] | join(", ")' \
+        "${1%.unifi}.metadata.json" 2>/dev/null || echo 'contents unknown'
+}
+newest=$({ ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | head -1)
+if [ -n "$newest" ]; then
+    apps=$(console_apps "$newest")
+    case "$apps" in *FAILED*) echo "WARNING: newest UniFi OS console backup is incomplete: $apps" >&2 ;; esac
+fi
+
 # image of the boot medium (on request)
 if [ "${1:-}" = --sd-image ]; then
     sdd="$DEST/sd-card"; mkdir -p "$sdd"
@@ -168,6 +197,13 @@ fi
     echo "identities:"
     for c in uckp protect; do
         [ -f "$A/$c/board.info" ] && echo "  $c: $(grep -E '^board\.(shortname|sysid|serialno)=' "$A/$c/board.info" | paste -sd' ')" || true
+    done
+    echo
+    echo "app backups (newest first):"
+    { ls -t "$B"/network/*.unf 2>/dev/null || true; } | head -1 | while read -r f; do echo "  network/$(basename "$f")"; done
+    { ls -t "$B"/protect/*.zip 2>/dev/null || true; } | while read -r f; do echo "  protect/$(basename "$f")"; done
+    { ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | while read -r f; do
+        echo "  unifi-os/$(basename "$f") ($(date -r "$f" '+%F %R'): $(console_apps "$f"))"
     done
     echo
     echo "stacks (.env without secrets):"
