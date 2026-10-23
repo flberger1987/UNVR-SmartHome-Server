@@ -55,23 +55,36 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 
 | What | How | Where | When |
 | --- | --- | --- | --- |
-| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network backups | `extras/unas-apps/backup-unas.sh root@<UNAS> --share <Drive share> --weekly` installs `unas-backup` and a weekly timer (Sunday 01:00); `unas-backup` on the NAS runs it by hand | `<share>/UNAS-Recovery/recovery/` (linked from `.unas-apps/backup/recovery`) | weekly, and after app installs/updates |
+| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network, Protect and console backups | `extras/unas-apps/backup-unas.sh root@<UNAS> --share <Drive share> --weekly` installs `unas-backup` and a weekly timer (Sunday 01:00); `unas-backup` on the NAS runs it by hand | `<share>/UNAS-Recovery/recovery/` (linked from `.unas-apps/backup/recovery`) | weekly, and after app installs/updates |
 | Off-box copy | a UniFi Drive remote backup of that share (here: the nightly OneDrive task at 02:00), unencrypted | cloud | nightly |
 | UniFi Network | autobackup in the Network app (set: daily 03:00, keep 7) | inside UniFi OS, newest two in the recovery set | daily |
-| UniFi OS console (Network, Protect settings, users) | cloud backup (needs Remote Access) | Ubiquiti cloud | daily |
+| UniFi Protect (settings, users, device certificate; no video) | Protect itself, after settings changes | `/srv/unifi-protect/backups/*.zip` inside UniFi OS, newest two in the recovery set (`protect/`) | on change |
+| UniFi OS console (console settings, users, Network, Protect) | Control Plane → Backups → Automatic Backups (set: weekly, Friday 04:00, keep 10), or "Backup Now" | local `/data/unifi-core/local-backups/<time>/*.unifi`, newest two in the recovery set (`unifi-os/`, with `.metadata.json`); uploaded to the Ubiquiti cloud (Remote Access on) | weekly |
+| Not in any backup | Protect's video, events and its Postgres database on `srv.img` (Protect's backup holds its settings only) | — | — |
 | SD card image | `unas-backup --sd-image` (or `backup-unas.sh … --sd-image`) | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`) | after host changes |
 | Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set; the monitor's Telegram token is in no backup) | Git | — |
 
 Check a set without changing anything (checksums, every archive
-decompresses): `extras/unas-apps/restore-unas.sh root@<UNAS> --check`.
+decompresses, the Protect zips are readable, which apps each console backup
+holds): `extras/unas-apps/restore-unas.sh root@<UNAS> --check`. `MANIFEST.txt`
+lists the app backups; `unas-backup` warns when the newest console backup is
+missing an app.
+
+The app backups are restored in UniFi OS, not by `restore-unas.sh`:
+
+| File in the set | Restores | Where |
+| --- | --- | --- |
+| `unifi-os/unifi_os_backup_*.unifi` | the whole console: settings, users, Network, Protect (the apps marked `ok` in its `.metadata.json`) | setup wizard of a new console: "Restore from Backup" → the cloud list or upload the file; on a running console Control Plane → Backups → "Restore from Backup File". Encrypted; only for a console of the same owner (UI account) |
+| `protect/unifi_protect_backup.*.zip` | Protect's settings, users, device certificate (cameras adopted at the time re-adopt) | Control Plane → Backups → "Restore from Backup File", upload the zip; keep the file name, UniFi OS tells the type from it |
+| `network/*.unf` | Network: sites, devices, settings | Network app → Settings → System → Backups ([restore under load](#restore-under-load)) |
 
 The recovery set is on the same disks as the apps. It covers a lost, reset or
 replaced boot medium; the loss of the RAID needs the off-box copy (or the
 cloud backup plus a rebuild from sources). Stable file names let the cloud
 copy replace files instead of collecting old versions. The set is stored
 unencrypted (decided for this installation): the Network backups in it hold
-Wi-Fi passwords and device credentials, so the cloud account must be protected
-accordingly.
+Wi-Fi passwords and device credentials, the Protect backups the private key
+cameras trust, so the cloud account must be protected accordingly.
 
 ## Recovery scenarios
 
@@ -119,9 +132,11 @@ The pool still holds Docker, every image, container and app data.
    — keeps the restored identity and image, creates the fixed-size volume.
 5. `extras/unas-apps/install-on-unas.sh root@<UNAS> --up`
 6. UniFi OS data was lost with the pool: on first start it is a new console
-   with the old identity. Restore the console backup from the cloud in the
-   setup wizard, or set it up and restore the newest Network `.unf` from the
-   set ([step 8](#8-unifi-os-cloud-key-gen2-plus)).
+   with the old identity. Restore a console backup in the setup wizard
+   ("Restore from Backup": from the cloud, or upload `unifi-os/*.unifi` from
+   the set — one whose `.metadata.json` shows Protect `ok`), or set it up and
+   restore the newest Network `.unf` and Protect `.zip` from the set
+   ([app backups](#backups), [step 8](#8-unifi-os-cloud-key-gen2-plus)).
 7. Monitoring: [step 11](#11-monitoring-telegram).
 
 ### C. One app broken
@@ -137,6 +152,9 @@ The pool still holds Docker, every image, container and app data.
 
 Restore a Network backup (`.unf`) in the Network app (Settings → System →
 Backups). Under load follow [restore under load](#restore-under-load).
+Protect: upload a `protect/*.zip` from the set (or one of Protect's own) in
+Control Plane → Backups → "Restore from Backup File"; the whole console the
+same way with a `.unifi` (see [app backups](#backups)).
 
 ## From zero, step by step
 
@@ -217,7 +235,10 @@ As in [Backups](#backups); keep it on the pool and off-box.
 3. Network backup: Network app → Settings → System → Backups → restore the
    `.unf` ([restore under load](#restore-under-load)).
 4. Remote Access on (Control Plane → Console). Install Protect from the app
-   list. Set the Network autobackup schedule (daily, keep 7).
+   list. Set the Network autobackup schedule (daily, keep 7) and the console
+   backups (Control Plane → Backups → Automatic Backups, here weekly, keep 10),
+   then "Backup Now" once: `/data/unifi-core/config/backup.yaml` (inside the
+   container) must show Protect `success: true`.
 5. `extras/unas-apps/backup-unas.sh root@<UNAS>` — `uckp-os:live` now holds
    the installed apps.
 
@@ -386,6 +407,8 @@ output in the journal (RAM). A run takes 4–8 seconds.
 | UniFi OS state `error`, "Error reading network data for eth0" | it reads DNS from systemd-resolved (masked) | tmpfiles link `/run/systemd/resolve/resolv.conf` → `/etc/resolv.conf`; after earlier app failures restart `unifi-core` once |
 | storage step: 0 B, "at least 2 drives" | storage daemons masked on purpose | continue without protection; never unmask `usd`/`ustated` |
 | after every container start Protect has no folders on `/srv`, its database is recreated, cameras cannot be adopted; journal: `50-srv-link … remove unexpected /srv folder` | the boot hooks `bootup-bottom/50-srv-link` (`srv-gen`) and `10-scan-dot-srv` rebuild `/srv` from the storage daemon's view — no disk, so they wipe it | both removed in the image (with their `bootup-top` counterparts); in a running container remove them, `systemctl restart unifi-protect`, commit to `uckp-os:live` |
+| console backup without Protect: `/data/unifi-core/config/backup.yaml` shows `protect: success: false`, `…/api/ucore/backup/export failed, status: 500 … Could not save backup in directory /data/unifi-core/backups/<id>/backup/protect/` | Protect ran on the `/srv` those hooks had wiped (row above): its export reads its device certificate (`/srv/unifi-protect/data/devices.crt`) and its database, both gone. Not permissions: unifi-core creates the directory with mode 777 for Protect's user | fixed with the hooks. Test Protect's export inside the container without a login: `d=/data/unifi-core/backups/selftest/backup/protect/; mkdir -p $d && chmod 777 $d && curl -s -w '%{http_code}\n' -H 'Content-Type: application/json' -d "{\"dir\":\"$d\"}" http://127.0.0.1:7080/api/ucore/backup/export; ls $d; rm -rf /data/unifi-core/backups/selftest` (200, about 30 files); then "Backup Now" |
+| unifi-core: "Scheduled backup inactive and no recovery snapshot to refresh; no CronJob scheduled" | Automatic Backups off (as after the setup) | Control Plane → Backups → Automatic Backups; then `settings.yaml` has `autoBackupEnabled: true` and the log "Building backup schedule cron: … (user schedule)" after every unifi-core start |
 | Network app killed during start, restart loop | start > 15 min under load | systemd start timeout 45 min (in the image) |
 | Protect restart loop: `Failed with result 'timeout'`, `relation "nvrs" does not exist` | a first start (empty database) runs every migration, longer than Protect's 5 min start timeout | 45 min (in the image) |
 | first Protect start takes about an hour | 886 migrations (4.x → 7.3), each with fsyncs on RAID 6 HDDs | only while its database is new: `ALTER SYSTEM SET fsync = off` + `SELECT pg_reload_conf()` on port 5433 (as `postgres` inside the container), and once Protect is active `ALTER SYSTEM RESET fsync`, reload, `CHECKPOINT` |
