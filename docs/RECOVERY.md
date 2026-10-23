@@ -187,9 +187,10 @@ As in [Backups](#backups); keep it on the pool and off-box.
 
 ### 7. LoxBerry and Dockge
 
-- LoxBerry at `http://<LOXBERRY_IP>/`: change the default password
-  (`loxberry`/`loxberry`). SSH: user `loxberry`, keys only; put public keys
-  into `/opt/loxberry/.ssh/authorized_keys` (in the volume).
+- LoxBerry at `http://<LOXBERRY_IP>/`: set the admin password and SecurePIN
+  with `extras/unas-apps/loxberry/set-passwords.sh root@<UNAS>` (typed in the
+  terminal; web interface, system user, Samba). SSH: user `loxberry`, keys
+  only; put public keys into `/opt/loxberry/.ssh/authorized_keys` (in the volume).
 - Dockge at `http://<DOCKGE_IP>:5001` manages all stacks.
 
 ### 8. UniFi OS (Cloud Key Gen2 Plus)
@@ -284,6 +285,7 @@ is away), Remote Access connected, RAID resync resumed where it stopped.
 | installer builds LoxBerry 4 / PHP 8.4 fails | upstream installer moved to Debian 13 | pin the installer commit, LoxBerry 3.0.1.3 on bookworm (`loxberry/base`) |
 | `dietpi` user missing, PHP 7.4 repo key fails | container base lacks them | created in the Dockerfile, `gnupg` added |
 | default password is public | — | change it; SSH for `loxberry` with keys only |
+| changing the password in the web interface fails | it asks for the old password and SecurePIN; the installer in the image build set random ones | `loxberry/set-passwords.sh` sets them as root in the container |
 
 ### UniFi OS in a container (Cloud Key Gen2 Plus)
 
