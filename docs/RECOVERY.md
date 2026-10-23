@@ -200,8 +200,9 @@ As in [Backups](#backups); keep it on the pool and off-box.
   `extras/unas-apps/loxberry/update-loxberry.sh root@<UNAS> 4` (LoxBerry's own
   updater; rollback point first, commits `loxberry-unas:live`, restarts).
   A restored recovery set already has the updated `:live` image.
-- Plugins: `loxberry/install-plugin.sh root@<UNAS> <zip-url>`; Shelly via MQTT:
-  `loxberry/shelly-mqtt.sh`.
+- Plugins: `loxberry/install-plugin.sh root@<UNAS> <zip-url|plugin.zip>` (a local
+  zip is streamed over SSH into the container; `--dry-run` checks the zip without
+  SecurePIN or install); Shelly via MQTT: `loxberry/shelly-mqtt.sh`.
 - Dockge at `http://<DOCKGE_IP>:5001` manages all stacks.
 
 ### 8. UniFi OS (Cloud Key Gen2 Plus)
