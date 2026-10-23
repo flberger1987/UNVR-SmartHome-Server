@@ -3,7 +3,11 @@
 #
 #   extras/unas-apps/restore-unas.sh root@<UNAS-IP> [--set <dir on the UNAS>] [--check]
 #
-#   --check   only verify the set (checksums, every archive decompresses), change nothing
+#   --check   only verify the set (checksums, every archive decompresses, the
+#             Protect zips are readable), change nothing
+#
+# The app backups in the set (network/*.unf, protect/*.zip, unifi-os/*.unifi)
+# are restored in UniFi OS itself; the script lists them (docs/RECOVERY.md).
 #
 # Order (docs/RECOVERY.md): converted UNAS with a storage pool, host tuning,
 # install-on-unas.sh (Docker), then this script, then install-uckp.sh /
@@ -36,13 +40,32 @@ B=${SET:-$A/backup/recovery}
 [ -f "$B/SHA256SUMS" ] || { echo "no recovery set in $B" >&2; exit 1; }
 
 echo "checking $B"
-(cd "$B" && sha256sum -c --quiet SHA256SUMS) && echo "checksums OK ($(wc -l < "$B/SHA256SUMS") files)"
+(cd "$B" && sha256sum -c --quiet SHA256SUMS) || { echo 'checksum mismatch: the set is damaged' >&2; exit 1; }
+echo "checksums OK ($(wc -l < "$B/SHA256SUMS") files)"
 if [ "$CHECK" = true ]; then
+    bad=0
+    ok() { echo "  ok  ${1#"$B"/} ($(du -h "$1" | cut -f1)${2:+; $2})"; }
     for f in "$B"/*.tar.zst "$B"/images/*.tar.zst; do
         [ -e "$f" ] || continue
-        zstd -t -q "$f" && echo "  ok  $(basename "$f") ($(du -h "$f" | cut -f1))"
+        if zstd -t -q "$f"; then ok "$f"; else echo "  BAD ${f#"$B"/}"; bad=$((bad + 1)); fi
     done
+    # Protect: every member's CRC, and the settings file it cannot do without
+    for f in "$B"/protect/*.zip; do
+        [ -e "$f" ] || continue
+        if python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(z.testzip() is not None or "nvr.json" not in z.namelist())' "$f"; then
+            ok "$f"
+        else echo "  BAD ${f#"$B"/}"; bad=$((bad + 1)); fi
+    done
+    # console backups are encrypted: checksum only, contents from their metadata
+    for f in "$B"/unifi-os/*.unifi; do
+        [ -e "$f" ] || continue
+        apps=$(jq -r '[(.controllers // {}), (.services // {}) | to_entries[] | "\(.key) \(if .value.success then "ok" else "FAILED" end)"] | join(", ")' \
+            "${f%.unifi}.metadata.json" 2>/dev/null || echo 'contents unknown')
+        if [ -s "$f" ]; then ok "$f" "$apps"; else echo "  BAD ${f#"$B"/} (empty)"; bad=$((bad + 1)); fi
+    done
+    for f in "$B"/network/*.unf; do [ -e "$f" ] || continue; ok "$f" 'checksum only'; done
     head -n 3 "$B/MANIFEST.txt"
+    [ "$bad" -eq 0 ] || { echo "$bad file(s) damaged" >&2; exit 1; }
     exit 0
 fi
 docker info >/dev/null 2>&1 || { echo 'Docker is not running; run install-on-unas.sh first' >&2; exit 1; }
@@ -79,8 +102,10 @@ if [ -f "$B/loxberry-volume.tar.zst" ]; then
 fi
 
 echo
-echo "Network backups in $B/network (restore one in the Network app if its data is new):"
+echo "App backups in $B (restore them in UniFi OS if its data is new, docs/RECOVERY.md):"
+ls -1t "$B"/unifi-os/*.unifi 2>/dev/null || true   # console with all apps
 ls -1t "$B"/network/*.unf 2>/dev/null | head -3 || true
+ls -1t "$B"/protect/*.zip 2>/dev/null || true
 EOF
 
 [[ "$check" == true ]] && exit 0
@@ -90,4 +115,6 @@ Next:
   extras/unas-apps/uckp/install-uckp.sh <target> --ip <UCKP_IP> --mac <UCKP_MAC> --size <SIZE>
   extras/unas-apps/install-on-unas.sh <target> --up
 (identity files and images from the set are kept; see docs/RECOVERY.md)
+UniFi OS with new data: restore a console backup (unifi-os/*.unifi) in its
+setup wizard, or Network (.unf) and Protect (.zip) one by one afterwards.
 TXT
