@@ -26,7 +26,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 │     └─ backup/          recovery set, SD card image, SYSTEM.md
 └─ macvlan network unas-lan on the LAN port, one LAN address per app:
    UniFi OS (Cloud Key Gen2 Plus 6.0.11: Network 10.6.106, Protect 7.x)
-   LoxBerry 3.0.1.3 · Dockge · [standalone UniFi Network Server] · [UNVR Protect]
+   LoxBerry 4 · Dockge · [standalone UniFi Network Server] · [UNVR Protect]
 ```
 
 | Component | Built by | Documentation |
@@ -110,7 +110,8 @@ The pool still holds Docker, every image, container and app data.
 2. Copy the off-box recovery set to `<pool>/.unas-apps/backup/recovery/`.
 3. `extras/unas-apps/restore-unas.sh root@<UNAS>` — verifies the checksums,
    restores stack config and console identities, loads all images (the UniFi
-   OS image `uckp-os:live` with its installed apps), restores LoxBerry's volume.
+   OS image `uckp-os:live` with its installed apps, `loxberry-unas:live` with
+   LoxBerry's update and plugin packages), restores LoxBerry's volume.
 4. `extras/unas-apps/uckp/install-uckp.sh root@<UNAS> --ip <UCKP_IP> --mac <UCKP_MAC> --size <SIZE>`
    — keeps the restored identity and image, creates the fixed-size volume.
 5. `extras/unas-apps/install-on-unas.sh root@<UNAS> --up`
@@ -122,8 +123,8 @@ The pool still holds Docker, every image, container and app data.
 ### C. One app broken
 
 - Container misbehaves: `cd <pool>/.unas-apps/data/stacks/<stack> && docker compose up -d --force-recreate`
-  (data stays on the volumes; for UniFi OS the image must contain its apps —
-  see the live image pitfall).
+  (data stays on the volumes; for UniFi OS and LoxBerry the `:live` image
+  must contain the installed apps and packages — see the live image pitfalls).
 - Image broken: load it from the recovery set
   (`zstd -dc images/<name>.tar.zst | docker load`), or rebuild it
   (`install-uckp.sh … --rebuild`, `build-images.sh` for LoxBerry).
@@ -191,6 +192,12 @@ As in [Backups](#backups); keep it on the pool and off-box.
   with `extras/unas-apps/loxberry/set-passwords.sh root@<UNAS>` (typed in the
   terminal; web interface, system user, Samba). SSH: user `loxberry`, keys
   only; put public keys into `/opt/loxberry/.ssh/authorized_keys` (in the volume).
+- A fresh build is LoxBerry 3.0.1.3; bring it to the current release with
+  `extras/unas-apps/loxberry/update-loxberry.sh root@<UNAS> 4` (LoxBerry's own
+  updater; rollback point first, commits `loxberry-unas:live`, restarts).
+  A restored recovery set already has the updated `:live` image.
+- Plugins: `loxberry/install-plugin.sh root@<UNAS> <zip-url>`; Shelly via MQTT:
+  `loxberry/shelly-mqtt.sh`.
 - Dockge at `http://<DOCKGE_IP>:5001` manages all stacks.
 
 ### 8. UniFi OS (Cloud Key Gen2 Plus)
@@ -223,6 +230,10 @@ mounted (about 4 MB in use), UniFi OS started from `uckp-os:live` with Network
 and Protect in four minutes, all adopted devices reported again about two
 minutes after the Network app was ready (they back off while the controller
 is away), Remote Access connected, RAID resync resumed where it stopped.
+LoxBerry 3.0.1.3 → 4.0.0.15 the same day with `update-loxberry.sh … 4`: about
+12 minutes during the resync, every update script without warnings, the
+container recreated from `loxberry-unas:live` kept the plugin packages, all
+Shellys reconnected to the broker and the gateway kept forwarding.
 
 - `https://<UCKP_IP>/`: UniFi OS up, Remote Access on, devices online.
 - Inside: `docker exec unifi-os systemctl --failed` shows at most
@@ -282,7 +293,11 @@ is away), Remote Access connected, RAID resync resumed where it stopped.
 
 | Symptom | Cause | Solution |
 | --- | --- | --- |
-| installer builds LoxBerry 4 / PHP 8.4 fails | upstream installer moved to Debian 13 | pin the installer commit, LoxBerry 3.0.1.3 on bookworm (`loxberry/base`) |
+| installer builds LoxBerry 4 / PHP 8.4 fails | upstream installer moved to Debian 13, whose systemd refuses the UNVR's cgroup v1 | build 3.0.1.3 on bookworm from the pinned installer (`loxberry/base`), then update in place: LoxBerry 4 still ships a Debian 12 package list (`packages12.txt`) and keeps PHP 7.4 for Apache |
+| update page offers no 4.x | the updater stays within the current major version until `Update.max_version` allows the next | `loxberry/update-loxberry.sh root@<UNAS> 4` sets it, as "allow upgrade" on the update page does |
+| packages a plugin or update installed (e.g. ffmpeg for Intercom) are gone after the container is recreated | apt installs go into the container layer; only `/opt/loxberry` is a volume | the stack runs `loxberry-unas:live`; `unas-backup`, `install-on-unas.sh --up` and `update-loxberry.sh` commit the container to it; `--images` never overwrites a `:live` image on the UNAS |
+| plugin install seems stuck for minutes | its apt dependencies unpack slowly (dpkg syncs every file; RAID 6, resync) | wait; `log/system/plugininstall/<plugin>.log` and `pgrep -fa dpkg` in the container show progress |
+| SecurePIN visible in the container's process list during a plugin install | `plugininstall.pl` takes it as a parameter | change the PIN afterwards if that matters: `set-passwords.sh` (Enter keeps the password) |
 | `dietpi` user missing, PHP 7.4 repo key fails | container base lacks them | created in the Dockerfile, `gnupg` added |
 | default password is public | — | change it; SSH for `loxberry` with keys only |
 | changing the password in the web interface fails | it asks for the old password and SecurePIN; the installer in the image build set random ones | `loxberry/set-passwords.sh` sets them as root in the container |

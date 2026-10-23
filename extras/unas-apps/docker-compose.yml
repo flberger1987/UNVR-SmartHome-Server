@@ -74,7 +74,11 @@ services:
       - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
 
   loxberry:
-    image: loxberry-unas:3.0.1.3
+    # :live = the running container committed (backup, install --up, updates):
+    # LoxBerry updates and plugins install packages into the container layer.
+    # A fresh install starts from the 3.0.1.3 build (build-images.sh tags it);
+    # loxberry/update-loxberry.sh then brings it to the current release.
+    image: loxberry-unas:live
     container_name: loxberry
     hostname: loxberry
     restart: unless-stopped

@@ -48,6 +48,7 @@ done
 echo "== building LoxBerry 3.0.1.3 (base, then UNAS overlay)"
 docker build --platform linux/arm64 -t loxberry-arm64:base "$here/loxberry/base"
 docker build --platform linux/arm64 -t "$loxberry_image" "$here/loxberry"
+docker tag "$loxberry_image" loxberry-unas:live   # the stack runs :live (see docker-compose.yml)
 
 (cd "$out" && shasum -a 256 "docker-${docker_version}.tgz" docker-compose crun > SHA256SUMS)
 docker image ls --format '{{.Repository}}:{{.Tag}}  {{.Size}}' |

@@ -16,8 +16,9 @@
 # (images that did not change since the last run are skipped):
 #   images/<image>.tar.zst      docker save of each image the stacks deploy;
 #                               UniFi OS installs its apps (Protect, Network
-#                               updates) into the container layer, so the UniFi
-#                               OS stacks run <image>:live and the running
+#                               updates) and LoxBerry its update and plugin
+#                               packages into the container layer, so these
+#                               stacks run <image>:live and the running
 #                               containers are committed to it first
 #   config.tar.zst              stacks (compose.yaml, .env, resolv.conf), Dockge,
 #                               identities of the UniFi OS containers, daemon.json
@@ -90,9 +91,9 @@ images=$(for s in "$A"/data/stacks/*/ "$A"/dockge/; do
     [ -f "$s/compose.yaml" ] || continue
     (cd "$s" && docker compose config --images 2>/dev/null) || echo "WARNING: cannot read $s/compose.yaml" >&2
 done | sort -u)
-# UniFi OS containers: freeze the container layer (installed apps) into the
-# :live image their stack runs
-for c in unifi-os unifi-protect; do
+# UniFi OS and LoxBerry: freeze the container layer (installed apps and
+# packages) into the :live image their stack runs
+for c in unifi-os unifi-protect loxberry; do
     docker container inspect "$c" >/dev/null 2>&1 || continue
     img=$(docker container inspect -f '{{.Config.Image}}' "$c")
     case "$img" in *:live) ;; *) echo "$c does not run a :live image ($img), not committed"; continue ;; esac

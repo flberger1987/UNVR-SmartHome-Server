@@ -207,8 +207,13 @@ EOF
 
 if [[ "$images" == true ]]; then
     list=$(sed -n 's/^ *image: *\([^ #]*\).*/\1/p' "$here/docker-compose.yml" "$here/dockge/compose.yaml" | sort -u)
-    echo "streaming images: $(echo $list)"
-    docker save $list | remote 'docker load'
+    # a :live image on the UNAS holds installed state; never replace it with a fresh build
+    keep=$(remote 'docker image ls --format "{{.Repository}}:{{.Tag}}"' | grep ':live$' || true)
+    list=$(for i in $list; do grep -qxF "$i" <<<"$keep" && echo "keeping $i on the UNAS" >&2 || echo "$i"; done)
+    if [[ -n "$list" ]]; then
+        echo "streaming images: $(echo $list)"
+        docker save $list | remote 'docker load'
+    fi
 fi
 if [[ "$up" == true ]]; then
     # (Re)create the shared macvlan network from LAN_* in .env, then start both stacks.
@@ -217,9 +222,9 @@ set -euo pipefail
 envget() { sed -n "s/^$1=//p" "$STACK/.env" | tr -d '"'"'"''; }
 PROTECT="${STACK%/unas-apps}/protect"   # optional, from protect/install-protect.sh
 UCKP="${STACK%/unas-apps}/uckp"         # optional, from uckp/install-uckp.sh
-# UniFi OS keeps installed apps in the container layer: commit it to the
-# :live image the stack runs before the container is removed
-for c in unifi-os unifi-protect; do
+# UniFi OS and LoxBerry keep installed apps/packages in the container layer:
+# commit it to the :live image the stack runs before the container is removed
+for c in unifi-os unifi-protect loxberry; do
     img=$(docker container inspect -f '{{.Config.Image}}' "$c" 2>/dev/null) || continue
     case "$img" in *:live) docker commit --pause=false "$c" "$img" >/dev/null && echo "kept state of $c in $img" ;; esac
 done

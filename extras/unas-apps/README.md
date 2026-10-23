@@ -7,7 +7,7 @@ address. Verified on 2026-10-21 on the four-bay UNVR from the main README.
 | Service | Address | Notes |
 | --- | --- | --- |
 | UniFi Network 10.6.106 (standalone) | `https://<UNIFI_IP>:8443` | optional (`--profile standalone-controller`), MongoDB 4.4.18 shares its network namespace; replaced by the Cloud Key UniFi OS below |
-| LoxBerry 3.0.1.3 | `http://<LOXBERRY_IP>/` | default login `loxberry`/`loxberry`, change it |
+| LoxBerry 4 | `http://<LOXBERRY_IP>/` | built as 3.0.1.3, updated in place; default login `loxberry`/`loxberry`, change it (`loxberry/set-passwords.sh`) |
 | Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` and `protect` stacks |
 | UniFi Protect (UNVR 5.1.33) | `https://<PROTECT_IP>/` | optional, see [UniFi Protect](#unifi-protect) |
 | UniFi OS (Cloud Key Gen2 Plus 6.0.11) | `https://<UCKP_IP>/` | optional, Network + Protect in one UniFi OS, see [UniFi OS as a Cloud Key](#unifi-os-as-a-cloud-key-gen2-plus) |
@@ -60,7 +60,12 @@ Other details:
   (`loxberry/base`, adapted from
   [leberert/loxberry-docker-arm64](https://github.com/leberert/loxberry-docker-arm64),
   Apache-2.0). The upstream default installer now targets LoxBerry 4 on
-  Debian 13.
+  Debian 13. LoxBerry's own updater brings the build to 4.x and stays on
+  Debian 12: `loxberry/update-loxberry.sh root@<UNAS> 4`.
+- Updates and plugins install packages into the container layer, not the
+  `/opt/loxberry` volume, so the stack runs `loxberry-unas:live`, the committed
+  container (like UniFi OS); the backup, `install-on-unas.sh --up` and the
+  update script commit it.
 - The UNAS itself cannot reach macvlan addresses (macvlan isolates its parent);
   every other device on the LAN can.
 - The UniFi controller joins MongoDB's network namespace
