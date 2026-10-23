@@ -23,7 +23,19 @@
 #     UniFi Drive's logs 16 MB, other app logs 4 MB each, /var/tmp 32 MB
 #   Postgres (host cluster 14-main): checkpoint every 30 min instead of 5,
 #     WAL compression
-# The RAM mounts take effect at the next reboot; the rest immediately.
+# Second round (24 h after the first, 2026-10-23: ~450 MB/day left, almost all
+# on /data): UniFi Drive samples remote-connection statistics every ~5 s into
+# its table "connections" and never deletes them (~29 MB/day, would fill /data
+# in months; ~8 MB/h of page and WAL writes), and the ext4 journal of /data
+# commits every 5 s (~6 MB/h). So:
+#   unas-drive-stats-trim (daily and after boot): the table is unlogged (no
+#     WAL, not written at regular checkpoints; Postgres empties it after an
+#     unclean shutdown, which only loses statistics) and keeps 3 days
+#   /data journal commit every 60 s (programs that fsync are unaffected)
+#   ulp-go's log mount 8 MB (its many logs filled 4 MB); unas-log-trim also
+#     empties files over 256 kB once a mount is three quarters full
+# The RAM mounts take effect at the next reboot (resized ones immediately);
+# the rest immediately.
 set -Eeuo pipefail
 target=${1:?usage: $0 root@<UNAS-IP>}
 remote() { ssh -o BatchMode=yes ${UNAS_SSH_CONFIG:+-F "$UNAS_SSH_CONFIG"} "$target" "$@"; }
@@ -61,13 +73,16 @@ ram() {   # ram <dir> <size>
 }
 ram /var/log 16m
 for d in /data/unifi-drive/logs; do ram "$d" 16m; done
-for d in /data/ulp-go/log /data/unifi-core/logs /data/ucs-agent/log /data/uid/log \
+ram /data/ulp-go/log 8m
+for d in /data/unifi-core/logs /data/ucs-agent/log /data/uid/log \
          /data/ms/logs /data/ds/logs /data/unifi-directory/log /data/unifi-protect/logs \
          /data/ai-feature-console/logs; do
     ram "$d" 4m
 done
 # Samba creates and deletes a socket per process here
 ram /etc/samba/private/msg.sock 1m
+# ext4 journal commit every 60 s instead of 5 (fsync still forces a commit)
+mount -o remount,commit=60 /data
 exit 0
 SH
 chmod 755 /usr/local/sbin/unas-volatile-logs
@@ -116,6 +131,9 @@ while :; do
         find "$d" -xdev -type f \( -name '*.gz' -o -name '*.[0-9]' -o -name '*.[0-9].log' \
             -o -name '*.old' -o -name '*-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*.log' \) -delete 2>/dev/null
         find "$d" -xdev -type f -size +2M -exec truncate -s 0 {} + 2>/dev/null
+        # many small logs can fill a mount too: empty the bigger ones at 75 %
+        [ "$(df --output=pcent "$d" | tail -1 | tr -dc 0-9)" -lt 75 ] ||
+            find "$d" -xdev -type f -size +256k -exec truncate -s 0 {} + 2>/dev/null
     done
     sleep 300
 done
@@ -151,9 +169,67 @@ CONF
     echo "postgres: checkpoint_timeout=$(su postgres -s /bin/sh -c "psql -p 5432 -tAc 'show checkpoint_timeout'"), wal_compression=$(su postgres -s /bin/sh -c "psql -p 5432 -tAc 'show wal_compression'")"
 fi
 
+# UniFi Drive's connection statistics: unlogged, 3 days (see the header)
+cat > /usr/local/sbin/unas-drive-stats-trim <<'SH'
+#!/bin/bash
+# UniFi Drive writes remote-connection statistics every ~5 s into the table
+# "connections" (database unifi-drive, on the SD card) and never deletes them.
+# Keep 3 days, and keep the table unlogged; re-applied after a Drive reinstall.
+cd /
+su postgres -s /bin/sh -c 'psql -p 5432 -X -qtA -v ON_ERROR_STOP=1 -d unifi-drive' <<'SQL'
+DO $$
+BEGIN
+    IF to_regclass('public.connections') IS NULL THEN
+        RAISE NOTICE 'no table connections, nothing to do';
+        RETURN;
+    END IF;
+    IF (SELECT relpersistence FROM pg_class WHERE oid = 'public.connections'::regclass) = 'p' THEN
+        ALTER TABLE public.connections SET UNLOGGED;
+        RAISE NOTICE 'connections set unlogged';
+    END IF;
+    DELETE FROM public.connections
+        WHERE (record->>'created_at')::timestamptz < now() - interval '3 days';
+END $$;
+SQL
+su postgres -s /bin/sh -c 'psql -p 5432 -X -qtA -d unifi-drive -c "VACUUM public.connections"' 2>/dev/null
+exit 0
+SH
+chmod 755 /usr/local/sbin/unas-drive-stats-trim
+
+cat > /etc/systemd/system/unas-drive-stats-trim.service <<'UNIT'
+[Unit]
+Description=Trim UniFi Drive's connection statistics (SD card)
+After=postgresql.service postgresql@14-main.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/unas-drive-stats-trim
+Nice=19
+UNIT
+
+cat > /etc/systemd/system/unas-drive-stats-trim.timer <<'UNIT'
+[Unit]
+Description=Trim UniFi Drive's connection statistics daily and after boot
+
+[Timer]
+OnBootSec=15min
+OnCalendar=*-*-* 04:40
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+UNIT
+
 systemctl daemon-reload
 systemctl restart systemd-journald
 systemctl enable unas-volatile-logs.service var-tmp.mount unas-log-trim.service >/dev/null 2>&1
+systemctl enable --now unas-drive-stats-trim.timer >/dev/null 2>&1
 systemctl restart unas-log-trim.service
-echo "installed; RAM log mounts take effect at the next reboot"
+# apply what works without a reboot
+[ "$(stat -f -c %T /data/ulp-go/log 2>/dev/null)" = tmpfs ] && mount -o remount,size=8m /data/ulp-go/log
+mount -o remount,commit=60 /data
+systemctl start unas-drive-stats-trim.service
+echo "connections: $(su postgres -s /bin/sh -c "cd /; psql -p 5432 -X -qtA -d unifi-drive -c \"select case relpersistence when 'u' then 'unlogged' else relpersistence::text end from pg_class where oid = to_regclass('public.connections')\"")"
+echo "/data: $(findmnt -n -o OPTIONS /data)"
+echo "installed; new RAM log mounts take effect at the next reboot"
 EOF
