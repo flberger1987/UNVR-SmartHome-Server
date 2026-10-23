@@ -25,6 +25,9 @@ RUN set -eu; \
     mkdir -p /etc/ssh/sshd_config.d; \
     printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers loxberry\n' \
         > /etc/ssh/sshd_config.d/10-key-only.conf; \
-    systemctl enable ssh >/dev/null 2>&1 || true
+    systemctl enable ssh >/dev/null 2>&1 || true; \
+    # LoxBerry's own jobs (log maintenance, plugin crons, update check) run from
+    # cron; the installer runs with a stubbed systemctl and leaves it disabled.
+    systemctl enable cron >/dev/null 2>&1
 
 EXPOSE 80 443 1883
