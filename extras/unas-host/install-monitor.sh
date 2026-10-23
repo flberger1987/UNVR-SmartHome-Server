@@ -569,6 +569,11 @@ set_telegram() {
         echo "Chat gefunden: $cname ($ctype)"
     fi
     [[ $chat =~ ^-?[0-9]+$ ]] || { echo "Die Chat-ID ist eine Zahl." >&2; return 2; }
+    # the bot's own id (the number before ":" in the token) is not a chat
+    [ "$chat" != "${token%%:*}" ] || { echo "Das ist die ID des Bots, nicht deine. Enter ohne Eingabe übernimmt den Chat, in dem du @$bot geschrieben hast." >&2; return 2; }
+    # only keep a chat the bot may write to (sendChatAction shows nothing in the chat)
+    r=$(tg sendChatAction "chat_id=$chat" "action=typing")
+    [[ $r == *'"ok":true'* ]] || { echo "@$bot kann an Chat $chat nicht schreiben: $(jq -r '.description // "keine Antwort"' <<<"$r" 2>/dev/null || echo 'keine Antwort'). Nichts gespeichert." >&2; return 1; }
     { if [ -f "$CONF" ]; then grep -v -E '^(TELEGRAM_TOKEN|TELEGRAM_CHAT_ID)=' "$CONF" || true
       else
         echo "# unas-monitor settings (root only: holds the Telegram bot token)."
