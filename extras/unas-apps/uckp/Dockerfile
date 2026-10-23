@@ -56,11 +56,14 @@ COPY ustorage /usr/bin/ustorage
 
 # Starts take longer here than on a Cloud Key while the box is busy (RAID
 # resync, swap, RAID 6 small writes): systemd would kill them half-way. The
-# Network app gets 45 min instead of 15. uid-agent gets 25 min instead of 90 s
+# Network app and Protect (first start: all database migrations) get 45 min
+# instead of 15 and 5. uid-agent gets 25 min instead of 90 s
 # (and its start script waits 20 min instead of 100 s): killed during its first
 # database migration it stays "Dirty database version ..." and never starts.
-RUN mkdir -p /etc/systemd/system/unifi.service.d /etc/systemd/system/uid-agent.service.d && \
+RUN mkdir -p /etc/systemd/system/unifi.service.d /etc/systemd/system/uid-agent.service.d \
+             /etc/systemd/system/unifi-protect.service.d && \
     printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi.service.d/90-unas-slow-start.conf && \
+    printf '[Service]\nTimeoutStartSec=45min\n' > /etc/systemd/system/unifi-protect.service.d/90-unas-slow-start.conf && \
     printf '[Service]\nTimeoutStartSec=25min\n' > /etc/systemd/system/uid-agent.service.d/90-unas-slow-start.conf && \
     sed -i 's/for i in {1..100}$/for i in {1..1200}/' /usr/lib/uid-agent/scripts/service/start.sh && \
     grep -q 'for i in {1..1200}' /usr/lib/uid-agent/scripts/service/start.sh
