@@ -205,7 +205,7 @@ done
 # conf holds the Telegram bot token and stays out (the set is unencrypted)
 tar -C / -cf - --ignore-failed-read --exclude=etc/unas-monitor.conf $(cd / && ls -d usr/local/sbin/unas-* usr/local/bin/docker \
     etc/systemd/system/unas-* etc/systemd/system/var-tmp.mount etc/systemd/journald.conf.d/90-unas-* \
-    etc/postgresql/14/main/conf.d/90-unas-* etc/unas-backup.conf root/.ssh/authorized_keys 2>/dev/null) 2>/dev/null \
+    etc/postgresql/14/main/conf.d/90-unas-* etc/unas-backup.conf etc/ustd/fan.conf root/.ssh/authorized_keys 2>/dev/null) 2>/dev/null \
     | z -o "$B/host-files.tar.zst.part" && mv "$B/host-files.tar.zst.part" "$B/host-files.tar.zst" && own "$B/host-files.tar.zst"
 
 # private system sheet

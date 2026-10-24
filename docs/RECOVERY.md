@@ -35,6 +35,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | --- | --- | --- |
 | Conversion UNVR → UNAS Pro | `tools/run-conversion.sh` | [README](../README.md#runbook) |
 | SD card wear reduction | `extras/unas-host/install-host-tuning.sh` | [below](#4-host-tuning) |
+| Cooler fan set points (optional) | `extras/unas-host/install-fan-setpoints.sh` | [below](#4-host-tuning) |
 | Docker, macvlan, app stack | `extras/unas-apps/install-on-unas.sh` | [extras/unas-apps/README.md](../extras/unas-apps/README.md) |
 | UniFi OS (Network + Protect) | `extras/unas-apps/uckp/install-uckp.sh` | [README section](../extras/unas-apps/README.md#unifi-os-as-a-cloud-key-gen2-plus) |
 | MJPEG camera in Protect (optional) | `extras/unas-apps/mjpeg-camera/install-mjpeg-camera.sh` | [README section](../extras/unas-apps/README.md#mjpeg-camera-in-unifi-protect) |
@@ -219,6 +220,11 @@ newest MFA code each time. Finish the UNAS Pro setup when asked.
 Journal in RAM, logs on small RAM mounts, Postgres with fewer checkpoints
 (measured: ~2 GB/day on the SD card before; see pitfalls).
 
+Optional, cooler fan set points: `extras/unas-host/install-fan-setpoints.sh root@<UNAS> --cpu 75 --hdd 44`
+(`--reset` for Ubiquiti's defaults). It writes `/etc/ustd/fan.conf` and
+`unas-fan-config.service`, which puts the file into ustd's status database
+whenever `usdbd` starts; takes effect at once, no reboot.
+
 ### 5. SD card image
 
 As in [Backups](#backups); keep it on the pool and off-box.
@@ -384,6 +390,7 @@ output in the journal (RAM). A run takes 4–8 seconds.
 | swap mirror `md0` shows `[4/2]` | its rebuild waits behind the md3 resync | finishes on its own after md3 (or while md3 is paused) |
 | memory pressure, swap full | 4 GB for Drive, three UniFi OS instances and two controllers during the migration | run one UniFi OS (the UCKP container) and stop the rest; host `earlyoom` kills only below 250 MB RAM and 10 % swap |
 | update offers for the host | — | do not update the host OS (see README "OS updates"; the conversion pins 5.1.33) |
+| fans stay at ~23 % (~1,800 rpm) with the CPU at 81–85 °C and the drives at 47–50 °C; UniFi Drive shows no fan mode (its API: "the fan control is not allow in this console"); a PWM value written to the hwmon device is taken back within seconds | Ubiquiti's `uhwd` runs a PID controller with the board's set points (UNVR4, `ea1a`: CPU 83 °C, drives 48 °C) from `config.fan` in ustd's status database; no profiles on this board | `install-fan-setpoints.sh` (measured with 75/44: fans 45–60 %, CPU 88 → 78 °C in two minutes under load) |
 
 ### Docker on this kernel
 
