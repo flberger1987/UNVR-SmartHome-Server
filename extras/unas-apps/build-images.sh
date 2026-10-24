@@ -45,9 +45,11 @@ for image in "$mongo_image" "$unifi_image" "$dockge_image"; do
     docker pull --platform linux/arm64 "$image"
 done
 
-echo "== building LoxBerry 3.0.1.3 (base, then UNAS overlay)"
+# LoxBerry's time zone: the Mac's (the image never changes it on its own)
+timezone=$(readlink /etc/localtime | sed -n 's|.*/zoneinfo/||p')
+echo "== building LoxBerry 3.0.1.3 (base, then UNAS overlay), time zone ${timezone:-Europe/Berlin}"
 docker build --platform linux/arm64 -t loxberry-arm64:base "$here/loxberry/base"
-docker build --platform linux/arm64 -t "$loxberry_image" "$here/loxberry"
+docker build --platform linux/arm64 --build-arg LB_TIMEZONE="${timezone:-Europe/Berlin}" -t "$loxberry_image" "$here/loxberry"
 docker tag "$loxberry_image" loxberry-unas:live   # the stack runs :live (see docker-compose.yml)
 
 (cd "$out" && shasum -a 256 "docker-${docker_version}.tgz" docker-compose crun > SHA256SUMS)

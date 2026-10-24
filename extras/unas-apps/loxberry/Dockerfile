@@ -13,6 +13,7 @@ FROM loxberry-arm64:base
 
 ARG LB_HTTP_PORT=80
 ARG LB_MASK_EXTRA=""
+ARG LB_TIMEZONE=Europe/Berlin
 
 RUN set -eu; \
     if [ "${LB_HTTP_PORT}" != 80 ]; then \
@@ -24,6 +25,19 @@ RUN set -eu; \
                 systemd-sysctl systemd-modules-load systemd-udev-trigger ${LB_MASK_EXTRA}; do \
         systemctl mask "$unit" >/dev/null 2>&1 || true; \
     done; \
+    # Time: the base carries DietPi's marker, so LoxBerry skips its hourly time
+    # job and at every start only re-applies /etc/timezone (dpkg-reconfigure
+    # tzdata). The NAS keeps the clock; "sudo ntpdate", which LoxBerry's time
+    # page still runs, would set it from this privileged container (Docker
+    # ignores --cap-drop SYS_TIME there), so ntpdate only queries.
+    echo "${LB_TIMEZONE}" > /etc/timezone; \
+    ln -sf "/usr/share/zoneinfo/${LB_TIMEZONE}" /etc/localtime; \
+    if [ -x /usr/sbin/ntpdate ] && [ -z "$(dpkg-divert --list /usr/sbin/ntpdate)" ]; then \
+        dpkg-divert --local --rename --divert /usr/sbin/ntpdate.distrib --add /usr/sbin/ntpdate; \
+        printf '#!/bin/sh\n# the NAS sets the clock; LoxBerry only queries (loxberry/Dockerfile)\necho "ntpdate: query only, the host sets the clock" >&2\nexec /usr/sbin/ntpdate.distrib -q "$@"\n' \
+            > /usr/sbin/ntpdate; \
+        chmod 755 /usr/sbin/ntpdate; \
+    fi; \
     # SSH for the loxberry user with keys only (the default password is public);
     # keys go to /opt/loxberry/.ssh/authorized_keys, which lives in the volume.
     mkdir -p /etc/ssh/sshd_config.d; \
