@@ -82,6 +82,7 @@ The complete rebuild, every recovery scenario and all pitfalls are in
 ```bash
 extras/unas-apps/backup-unas.sh root@<UNAS-IP>    # recovery set on the pool
 extras/unas-apps/restore-unas.sh root@<UNAS-IP>   # load it back (after install-on-unas.sh)
+extras/unas-apps/loxberry/restore-drill.sh root@<UNAS-IP>   # test LoxBerry from the set beside the live one
 ```
 
 The recovery set holds the finished images (the UniFi OS containers as

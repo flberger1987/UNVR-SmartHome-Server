@@ -86,22 +86,27 @@ unencrypted (decided for this installation): the Network backups in it hold
 Wi-Fi passwords and device credentials, the Protect backups the private key
 cameras trust, so the cloud account must be protected accordingly.
 
-Restore drill (LoxBerry, 2026-10-24, with that night's set; the live
-container untouched): on the UNAS `loxberry-volume.tar.zst` unpacked into a
-scratch directory on the pool (86 MB); `images/loxberry-unas_live.tar.zst`
-loaded under another tag in about 2 minutes, with exactly the saved image ID
-(`RepoTags` in the tar's `manifest.json`, `index.json` and `repositories`
-rewritten in the stream: a plain `docker load` re-tags `loxberry-unas:live`,
-which the stack runs); a container with the options of the loxberry service in
-`docker-compose.yml`, but another name, `--network none`, the scratch
-directory as `/opt/loxberry` and `systemd-udev-trigger`, `systemd-sysctl` and
-`systemd-modules-load` masked (they act on the host kernel). Result: systemd
-`running` after 100 s without failed units; Apache, Mosquitto, cron, the MQTT
-gateway and the plugin services active; LoxBerry 4.0.0.15; every plugin
-(Alexa2Lox, Dreame, Daikin Onecta, ConnectLife, Intercom) with its programs,
-web pages and settings; the MQTT gateway's subscriptions and the broker login
-present; under 100 MB of memory. Container, tag and directory removed
-afterwards. Repeat it after larger LoxBerry changes.
+Restore drill (LoxBerry), with the live container untouched:
+
+```bash
+extras/unas-apps/loxberry/restore-drill.sh root@<UNAS-IP>   # [--keep | --cleanup]
+```
+
+It unpacks `loxberry-volume.tar.zst` into a scratch directory on the pool,
+loads `images/loxberry-unas_live.tar.zst` under another tag (`RepoTags` in the
+tar's `manifest.json`, `index.json` and `repositories` rewritten in the stream:
+a plain `docker load` re-tags `loxberry-unas:live`, which the stack runs) and
+starts a container with the options of the loxberry service in
+`docker-compose.yml`, but another name, `--network none` and the scratch
+directory as `/opt/loxberry`. It reports systemd's state, failed units,
+services missing compared with the live container, Apache, every plugin with
+its programs, web pages and settings, the MQTT gateway's settings and the
+config files changed since the backup, then removes container, tag and
+directory. Runs on 2026-10-24 with that night's set: volume 86 MB, image
+loaded in 1½–2 minutes with exactly the saved image ID, systemd `running`
+after 30–100 s without failed units, LoxBerry 4.0.0.15 with all five plugins,
+under 100 MB of memory; only the Dreame gateway waited to restart (it needs
+the Dreame cloud). Repeat it after larger LoxBerry changes.
 
 ## Recovery scenarios
 
@@ -401,6 +406,8 @@ output in the journal (RAM). A run takes 4–8 seconds.
 | packages a plugin or update installed (e.g. ffmpeg for Intercom) are gone after the container is recreated | apt installs go into the container layer; only `/opt/loxberry` is a volume | the stack runs `loxberry-unas:live`; `unas-backup`, `install-on-unas.sh --up` and `update-loxberry.sh` commit the container to it; `--images` never overwrites a `:live` image on the UNAS |
 | LoxBerry and its plugins update themselves once cron runs (core weekly, plugins daily) | core `Update.Installtype=install`; plugins installed from release URLs get autoupdate 3 ("install releases") | notify only: Updates page → "notify" with an interval (setting the type without an interval removes the weekly check), Plugin management → each plugin "notify" (2); then update deliberately with `update-loxberry.sh` (rollback point first) |
 | LoxBerry's cron jobs never run (log maintenance, plugin jobs such as Intercom and Alexa2Lox, update check) | the installer runs with a stubbed `systemctl` in the image build and leaves `cron.service` disabled | enabled in `loxberry/Dockerfile`; in an existing container: `systemctl enable --now cron`, then commit `:live` (`unas-backup` does) |
+| every LoxBerry start sets kernel values of the NAS, may load modules and replays udev events for all host devices | the container is privileged (systemd), so `/proc/sys` and `/sys` are writable and `systemd-sysctl`, `systemd-modules-load` and `systemd-udev-trigger` run as on a real machine | masked in `loxberry/Dockerfile`; in an existing container: `systemctl mask systemd-sysctl systemd-modules-load systemd-udev-trigger`, then commit `:live` |
+| some Shellys stay offline for minutes after LoxBerry restarts | the Shelly firmware retries the broker with growing pauses | wait up to about 4 minutes (2026-10-24: six back within a minute, the last two after 3½); `http://<shelly>/rpc/Mqtt.GetStatus` shows `connected` |
 | plugin install seems stuck for minutes | its apt dependencies unpack slowly (dpkg syncs every file; RAID 6, resync) | wait; `log/system/plugininstall/<plugin>.log` and `pgrep -fa dpkg` in the container show progress |
 | Alexa2Lox: login with user and password fails | Amazon only accepts a refresh token now | run `alexa-cookie-cli` (adn77) on the Mac in a plain terminal: `-B 127.0.0.1 -q`, log in at `http://127.0.0.1:8080`, paste the `Atnr|…` token on the plugin page |
 | `alexa-cookie-cli`: "Proxy Server could not be initialized" | port 8080 is taken on the Mac (`-d` shows `EADDRINUSE`) | `-P <free port>` and open that port instead |
