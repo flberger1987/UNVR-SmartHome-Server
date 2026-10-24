@@ -11,6 +11,7 @@ address. Verified on 2026-10-21 on the four-bay UNVR from the main README.
 | Dockge | `http://<DOCKGE_IP>:5001` | manages the `unas-apps` and `protect` stacks |
 | UniFi Protect (UNVR 5.1.33) | `https://<PROTECT_IP>/` | optional, see [UniFi Protect](#unifi-protect) |
 | UniFi OS (Cloud Key Gen2 Plus 6.0.11) | `https://<UCKP_IP>/` | optional, Network + Protect in one UniFi OS, see [UniFi OS as a Cloud Key](#unifi-os-as-a-cloud-key-gen2-plus) |
+| MJPEG camera for Protect (go2rtc 1.9.14) | `rtsp://<CAM_IP>:8554/<stream>`, ONVIF on port 1984 | optional, e.g. a Loxone Intercom as a Protect camera, see [MJPEG camera in UniFi Protect](#mjpeg-camera-in-unifi-protect) |
 
 LoxBerry also answers SSH on port 22 for the user `loxberry`, keys only: put
 public keys into `/opt/loxberry/.ssh/authorized_keys` (in the `loxberry`
@@ -196,6 +197,58 @@ backup"). What made it work (2026-10-22):
 
 The backup is first imported into `ace_restore`; if a restore fails, the
 running app keeps an empty `ace`, nothing else is touched.
+
+## MJPEG camera in UniFi Protect
+
+Protect records H.264 from cameras it can adopt; since 5.0 that includes
+third-party cameras speaking ONVIF. A camera or door station that only sends
+MJPEG (e.g. the Loxone Intercom, `/mjpg/video.mjpg`) gets there through
+[go2rtc](https://github.com/AlexxIT/go2rtc): a container on its own LAN
+address encodes the MJPEG to H.264 and offers it over RTSP plus an ONVIF
+server. Protect needs one address per camera, hence one stack per camera.
+Other clients (e.g. the Loxone app) keep reading the camera directly.
+
+```bash
+extras/unas-apps/mjpeg-camera/install-mjpeg-camera.sh root@<UNAS-IP> --ip <CAM_IP> \
+    --url http://<camera>/mjpg/video.mjpg --name door-cam --keep-every 4 --fps 5 --up
+```
+
+The script asks for the camera login (Basic auth) in the terminal, writes the
+stack to `<pool>/.unas-apps/data/stacks/<name>/` (shows up in Dockge, in the
+recovery set and in the health monitor) with a root-only `.env` and a random
+RTSP password, and prints how to copy that password to the clipboard.
+
+Adopting it: Protect → Settings → System → "Discover third-party cameras"
+on; then Devices → the (?) next to the search → "Try advanced adoption":
+camera IP, user and password from `.env`. The dialog has no port field;
+Protect finds go2rtc's ONVIF service on port 1984 and keeps that port, so the
+stack stays on 1984. Recording mode as for any camera ("Always").
+
+How the encoding is kept cheap on the Cortex-A57 (measured with a
+1280×720 camera sending ~19 fps, no hardware video encoder in the AL-324):
+
+| Choice | CPU of the UNAS | Why |
+| --- | --- | --- |
+| ffmpeg reads the camera itself | — | go2rtc's own MJPEG reader handing ~25 Mbit/s on to ffmpeg over internal RTSP cost ~35 % |
+| keep every Nth frame, drop the rest **before decoding** (`noise` bitstream filter) | 4 % for 5 fps | decoding all and thinning afterwards: 8.5 %; encoding all 19 fps: 14 % |
+| x264 `ultrafast` with CABAC and 8×8 transform on, 1 thread, full-range YUV kept | 35 ms per frame | go2rtc's default (`superfast`): 58 ms; plain `ultrafast` is Baseline, which Protect does not record reliably |
+| `-r` on the output | — | without it ffmpeg assumes 25 fps for MJPEG and fills the stream up with copies |
+| CRF with a bit rate cap | ~0.5 Mbit/s for a still scene | instead of the full cap all the time |
+
+go2rtc reports a fixed 1920×1080, 30 fps, 8 Mbit/s over ONVIF, and Protect
+keeps what it read at adoption. `patch-onvif-values.sh` (run by the
+installer) writes a copy of the image's binary with the camera's values
+(`--size`, `--fps`, `--kbps`) as text of the same length, which the stack
+mounts over the original; run it again after changing the image version. A
+camera adopted before has its values in the Protect database (`cameras.channels`,
+with Protect stopped, see [RECOVERY.md](../../docs/RECOVERY.md#mjpeg-camera-in-protect)).
+
+On the LAN the container answers only ONVIF and `/api/frame.jpeg` (snapshots,
+no password, as Protect fetches them) on port 1984, and RTSP with the password
+on 8554; go2rtc's web UI and stream editing are not reachable. The camera
+sends its full MJPEG (~20–25 Mbit/s at 1280×720) to the container whatever
+is kept; a camera on a 100 Mbit/s port then has room for about three more
+viewers.
 
 ## Moving to another network
 

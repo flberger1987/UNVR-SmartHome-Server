@@ -19,7 +19,8 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 │  └─ /volume/<pool-uuid>/.unas-apps    everything below lives here
 │     ├─ docker/          static Docker 28.5.2, crun, compose; data-root
 │     ├─ data/stacks/     unas-apps (LoxBerry; optional standalone controller),
-│     │                   uckp (UniFi OS), protect (optional UNVR Protect)
+│     │                   uckp (UniFi OS), protect (optional UNVR Protect),
+│     │                   one per MJPEG camera (optional, go2rtc)
 │     ├─ dockge/          Dockge's own stack
 │     ├─ uckp/            Btrfs subvolume, no CoW, not in snapshots:
 │     │                   data/ persistent/ srv.img (ext4, the "HDD") identity
@@ -27,6 +28,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 └─ macvlan network unas-lan on the LAN port, one LAN address per app:
    UniFi OS (Cloud Key Gen2 Plus 6.0.11: Network 10.6.106, Protect 7.x)
    LoxBerry 4 · Dockge · [standalone UniFi Network Server] · [UNVR Protect]
+   · [MJPEG camera for Protect]
 ```
 
 | Component | Built by | Documentation |
@@ -35,6 +37,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | SD card wear reduction | `extras/unas-host/install-host-tuning.sh` | [below](#4-host-tuning) |
 | Docker, macvlan, app stack | `extras/unas-apps/install-on-unas.sh` | [extras/unas-apps/README.md](../extras/unas-apps/README.md) |
 | UniFi OS (Network + Protect) | `extras/unas-apps/uckp/install-uckp.sh` | [README section](../extras/unas-apps/README.md#unifi-os-as-a-cloud-key-gen2-plus) |
+| MJPEG camera in Protect (optional) | `extras/unas-apps/mjpeg-camera/install-mjpeg-camera.sh` | [README section](../extras/unas-apps/README.md#mjpeg-camera-in-unifi-protect) |
 | Recovery set | `extras/unas-apps/backup-unas.sh`, `restore-unas.sh` | [below](#backups) |
 | Health monitor, Telegram alerts | `extras/unas-host/install-monitor.sh` | [below](#11-monitoring-telegram) |
 
@@ -263,6 +266,11 @@ As in [Backups](#backups); keep it on the pool and off-box.
    container) must show Protect `success: true`.
 5. `extras/unas-apps/backup-unas.sh root@<UNAS>` — `uckp-os:live` now holds
    the installed apps.
+6. Optional, an MJPEG camera (e.g. a door station) in Protect:
+   `extras/unas-apps/mjpeg-camera/install-mjpeg-camera.sh root@<UNAS> --ip <CAM_IP> --url <MJPEG-URL> --up`,
+   then adopt it ([README](../extras/unas-apps/README.md#mjpeg-camera-in-unifi-protect)).
+   From a recovery set the stack comes back with its `.env` and patched
+   go2rtc; Protect keeps the adoption in its own backup.
 
 ### 9. Devices
 
@@ -450,6 +458,17 @@ output in the journal (RAM). A run takes 4–8 seconds.
 | Protect hides recording quality, bitrate and retention ("insert compatible storage") and keeps resetting fps/bitrate | the container's storage is an image on the pool, not a Cloud Key disk; the channels run with `autoFps`/`autoBitrate` | set the camera's channel in `cameras.channels` (e.g. high channel `fps` 15, `bitrate` 2000000, `autoFps`/`autoBitrate` false) with Protect stopped; recording continues, about 1 min gap |
 | database change for Protect does not stick or psql: "the database system is shutting down" | stopping `unifi-protect` also stops its database `postgresql@14-protect`, and Protect writes its state on start | inside the container: `systemctl stop unifi-protect`, then `systemctl start postgresql@14-protect`, wait for `pg_isready -h 127.0.0.1 -p 5433`, change with `psql -p 5433 -U postgres -d unifi-protect`, then `systemctl start unifi-protect` (back up the old value first) |
 | installing Protect takes ~45 min, "unpacked" for a long time | dpkg syncs every file, slow on RAID 6 HDDs | wait; the image sets `force-unsafe-io` for later installs and updates |
+
+### MJPEG camera in Protect
+
+| Symptom | Cause | Solution |
+| --- | --- | --- |
+| advanced adoption says "invalid credentials" although they are right | the dialog has no port field; Protect looks for ONVIF on go2rtc's port 1984 | keep go2rtc's API on `:1984` (it keeps that port for ONVIF and snapshots afterwards) |
+| Protect shows 1920×1080, 30 fps, 8 Mbit/s | go2rtc's ONVIF answers are fixed, Protect reads them once at adoption | the stack mounts a go2rtc patched with the real values (`patch-onvif-values.sh`); for a camera adopted before: with Protect stopped (its database alone, see "database change for Protect" above), set `width`/`height`/`fps`/`fpsValues`/`bitrate` of channel 0 in `cameras.channels` |
+| H.264 stream at 25 fps and high CPU although fewer frames are kept | ffmpeg assumes 25 fps for MJPEG and fills the RTSP output up with copies | `-r` with the target rate on the output (in `go2rtc.yaml`) |
+| go2rtc takes ~35 % CPU | its own MJPEG reader hands the full MJPEG to ffmpeg over internal RTSP | ffmpeg reads the camera itself (`#input=camera`) |
+| camera ignores `?fps=` / `?resolution=` (Loxone Intercom: always ~19 fps 1280×720) | — | thin out in ffmpeg before decoding (`--keep-every`) |
+| MJPEG from the camera stalls for up to 20 s at the NAS only (fine to a Wi-Fi client); many out-of-order and duplicate TCP segments (`TCPOFOQueue`, `TCPDSACKOldSent` in `/proc/net/netstat`) | the camera's switch port forced to 100 Mbit/s full duplex without autonegotiation: the camera falls back to half duplex (UniFi showed millions of `rx_errors` on that port); fast ACKs from the wired NAS collide, a Wi-Fi client hides it | set the port to "Auto" in UniFi Network |
 
 ### Restore under load
 

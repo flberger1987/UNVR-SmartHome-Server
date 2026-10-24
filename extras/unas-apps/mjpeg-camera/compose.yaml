@@ -1,0 +1,29 @@
+# An MJPEG camera (a door station such as the Loxone Intercom, an older IP
+# camera) as a camera in UniFi Protect. go2rtc reads the camera's MJPEG through
+# ffmpeg, encodes it to H.264 and offers it over RTSP plus an ONVIF server, so
+# Protect adopts it as a third-party camera. Protect wants one IP (and MAC) per
+# camera, hence the own macvlan address. Written by install-mjpeg-camera.sh;
+# the values and credentials are in .env (root only). See ../README.md.
+networks:
+  lan:
+    external: true
+    name: unas-lan
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    container_name: ${CAM_CONTAINER:?set in .env}
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${CAM_IP:?set in .env}
+    mac_address: ${CAM_MAC:?set in .env}
+    env_file: .env
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      # go2rtc answers ONVIF with a fixed 1920x1080, 30 fps, 8 Mbit/s, and
+      # Protect keeps what it read at adoption; this copy carries the camera's
+      # values (patch-onvif-values.sh, run again after changing the image)
+      - ./go2rtc:/usr/local/bin/go2rtc:ro
+    logging:
+      options: { max-size: "2m", max-file: "2" }

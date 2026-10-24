@@ -1,0 +1,40 @@
+# go2rtc for one MJPEG camera (see compose.yaml); ${...} come from .env
+app:
+  modules: [api, http, rtsp, mjpeg, onvif, exec, ffmpeg]
+api:
+  # Protect's advanced adoption has no port field; it finds go2rtc on its usual
+  # port 1984 and keeps that port for ONVIF and snapshots
+  listen: ":1984"
+  # only what Protect uses: the ONVIF service and snapshots (no web UI, no
+  # stream editing over the LAN)
+  allow_paths: ["/onvif/", "/api/frame.jpeg"]
+rtsp:
+  listen: ":8554"
+  # without a codec in the URL (as Protect asks) hand out H.264
+  default_query: "video=h264"
+  username: ${RTSP_USER}
+  password: ${RTSP_PASS}
+exec:
+  allow_paths: [ffmpeg]
+ffmpeg:
+  # The cheapest H.264 Protect records (High profile; ultrafast alone is
+  # Baseline): x264 ultrafast with CABAC and 8x8 transform back on, one thread,
+  # the camera's full-range YUV kept: 35 ms CPU per 720p frame on the
+  # Cortex-A57, go2rtc's default 58 ms. Quality-based with a cap, so a still
+  # scene costs little recording space; a key frame every 2 s. A steady frame
+  # rate out: without -r, ffmpeg assumes 25 fps for MJPEG and fills the RTSP
+  # output up with copies of frames.
+  h264: "-r:v ${CAM_FPS} -c:v libx264 -profile:v high -preset:v ultrafast -tune:v zerolatency -x264-params cabac=1:8x8dct=1 -threads 1 -force_key_frames expr:gte(t,n_forced*2) -crf ${CAM_CRF} -maxrate ${CAM_KBPS}k -bufsize ${CAM_BUFSIZE}k"
+  # The camera read by ffmpeg itself, not by go2rtc's MJPEG reader: handing
+  # ~25 Mbit/s MJPEG on to ffmpeg over internal RTSP cost go2rtc ~35 % of the
+  # CPU. MJPEG has no timestamps, so the clock gives them; ffmpeg gives up after
+  # 15 s without data and go2rtc reconnects. Only every CAM_KEEP_EVERY-th frame
+  # is kept, the others are dropped before decoding (a 19 fps camera, every
+  # 4th: 4 % CPU, against 14 % for all frames or 8.5 % for decoding all and
+  # thinning afterwards).
+  camera: "-fflags nobuffer -use_wallclock_as_timestamps 1 -rw_timeout 15000000 -headers 'Authorization: Basic ${CAM_AUTH}' -f mpjpeg -bsf:v noise=drop=n-${CAM_KEEP_EVERY}*floor(n/${CAM_KEEP_EVERY}) -i {input}"
+streams:
+  # the stream name is the ONVIF profile Protect stores at adoption
+  ${CAM_STREAM}: "ffmpeg:${CAM_URL}#input=camera#video=h264"
+log:
+  level: info
