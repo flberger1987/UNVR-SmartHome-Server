@@ -1,18 +1,23 @@
 #!/bin/bash
 # Recovery set for the UNAS apps (run on the Mac): installs the backup on the
-# UNAS (script, settings, optional weekly timer) and runs it once.
+# UNAS (script, settings, optional timers) and runs it once.
 #
-#   extras/unas-apps/backup-unas.sh root@<UNAS-IP> [--share <Drive share>] [--weekly] [--sd-image] [--no-run]
+#   extras/unas-apps/backup-unas.sh root@<UNAS-IP> [--share <Drive share>] [--weekly] [--sd-nightly] [--sd-image] [--no-run]
 #
 #   --share NAME  keep everything in the UniFi Drive share NAME, folder
 #                 UNAS-Recovery/ (e.g. a share that Drive backs up to OneDrive);
 #                 <pool>/.unas-apps/backup/recovery then links to it.
 #                 Default: <pool>/.unas-apps/backup/
 #   --weekly      run every Sunday 01:00 on the UNAS (before nightly cloud syncs)
-#   --sd-image    also write a fresh image of the boot medium (7.5 GB, rarely needed)
+#   --sd-nightly  check the boot medium every night at 00:30 and image it when
+#                 the host changed since the last image, at the latest every
+#                 SD_MAX_AGE_DAYS (7; set in /etc/unas-backup.conf, 1 = every
+#                 night). Each image is 7.5 GB and goes up with a cloud sync.
+#   --sd-image    also write a fresh image of the boot medium now
 #   --no-run      only install
 #
-# On the UNAS afterwards: unas-backup [--sd-image]. Result in <dest>/recovery/
+# On the UNAS afterwards: unas-backup [--sd-image], or only the boot medium:
+# unas-backup --sd-only [--if-changed]. Result in <dest>/recovery/
 # (images that did not change since the last run are skipped):
 #   images/<image>.tar.zst      docker save of each image the stacks deploy;
 #                               UniFi OS installs its apps (Protect, Network
@@ -33,17 +38,21 @@
 #                               console owner) with their .metadata.json
 #   SYSTEM.md                   private system sheet, if kept as <dest>/SYSTEM.md
 #   MANIFEST.txt, SHA256SUMS
-# and with --sd-image <dest>/sd-card/sd-boot.img.zst (+ .sha256, .sfdisk, .date).
-# The data is stored unencrypted; it holds Wi-Fi and device credentials.
+# and the boot medium image <dest>/sd-card/sd-boot.img.zst (+ .sha256, .sfdisk,
+# .date, .state); it replaces the previous one only after every partition of it
+# passed a check (unpacked into the pool, journal replayed as on a restore,
+# e2fsck). The data is stored unencrypted; it holds Wi-Fi and device
+# credentials, the boot medium image also the monitor's Telegram token.
 set -Eeuo pipefail
-usage="usage: $0 root@<UNAS-IP> [--share <Drive share>] [--weekly] [--sd-image] [--no-run]"
+usage="usage: $0 root@<UNAS-IP> [--share <Drive share>] [--weekly] [--sd-nightly] [--sd-image] [--no-run]"
 target=${1:?$usage}
 shift
-share='' weekly=false sd=false run=true
+share='' weekly=false sd_nightly=false sd=false run=true
 while (( $# )); do
     case "$1" in
         --share) share=${2:?$usage}; shift ;;
         --weekly) weekly=true ;;
+        --sd-nightly) sd_nightly=true ;;
         --sd-image) sd=true ;;
         --no-run) run=false ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -53,7 +62,7 @@ done
 [[ -z "$share" || "$share" =~ ^[A-Za-z0-9._\ -]+$ ]] || { echo 'invalid share name' >&2; exit 2; }
 remote() { ssh -o BatchMode=yes ${UNAS_SSH_CONFIG:+-F "$UNAS_SSH_CONFIG"} "$target" "$@"; }
 
-remote "SHARE='$share' WEEKLY='$weekly' bash -s" <<'EOF'
+remote "SHARE='$share' WEEKLY='$weekly' SD_NIGHTLY='$sd_nightly' bash -s" <<'EOF'
 set -euo pipefail
 volume=$(for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && echo "$v" && break; done)
 [ -n "$volume" ] || { echo 'no mounted storage pool' >&2; exit 1; }
@@ -76,19 +85,81 @@ if [ "$DEST" != "$A/backup" ]; then
         mv "$A/backup/SYSTEM.md" "$DEST/SYSTEM.md" && ln -s "$DEST/SYSTEM.md" "$A/backup/SYSTEM.md"
     fi
 fi
-printf 'DEST="%s"\nOWNER="%s"\n' "$DEST" "$OWNER" > /etc/unas-backup.conf
+age=$(sed -n 's/^SD_MAX_AGE_DAYS="\([0-9]*\)"$/\1/p' /etc/unas-backup.conf 2>/dev/null)   # keep a changed value
+printf 'DEST="%s"\nOWNER="%s"\nSD_MAX_AGE_DAYS="%s"\n' "$DEST" "$OWNER" "${age:-7}" > /etc/unas-backup.conf
 
 cat > /usr/local/sbin/unas-backup <<'SH'
 #!/bin/bash
 # Recovery set of the UNAS apps (installed by extras/unas-apps/backup-unas.sh).
-#   unas-backup [--sd-image]
+#   unas-backup [--sd-image]           recovery set (and an image of the boot medium)
+#   unas-backup --sd-only [--if-changed]   only the boot medium image; with
+#       --if-changed only when the host changed or the image is older than
+#       SD_MAX_AGE_DAYS
 set -euo pipefail
 . /etc/unas-backup.conf
 volume=$(for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && echo "$v" && break; done)
 A="$volume/.unas-apps" B="$DEST/recovery"
 mkdir -p "$B/images" "$B/network"
 z() { nice -n 19 ionice -c3 zstd -T2 -6 -q -f "$@"; }   # -f: replace leftover .part files
-exec 9>/run/unas-backup.lock; flock -n 9 || { echo 'another unas-backup is running' >&2; exit 1; }
+# the nightly image and the weekly set may meet: wait for the other one
+exec 9>/run/unas-backup.lock; flock -w 7200 9 || { echo 'another unas-backup is still running' >&2; exit 1; }
+
+# image of the boot medium: dd of the whole card while it runs (writes to it
+# are few with the host tuning); it replaces the previous image only when every
+# ext4 partition is clean after the journal replay a restored card would do
+sdd="$DEST/sd-card"
+sd_state() {   # the host on the card, without logs, caches and the /data databases
+    { cat /usr/lib/version; sfdisk -d /dev/boot 2>/dev/null
+      find /mnt/.rwfs/data /boot/firmware -xdev -type f ! -path '*/var/log/*' ! -path '*/var/cache/*' \
+          ! -path '*/var/tmp/*' ! -path '*/var/lib/systemd/*' ! -path '*/var/lib/logrotate/*' \
+          ! -name .srv.no_need_to_migrate ! -name .bash_history ! -name .lesshst ! -name .viminfo \
+          -printf '%P %s %T@\n' 2>/dev/null | sort || true
+    } | sha256sum | cut -d' ' -f1
+}
+sd_verify() {   # sd_verify <image.zst>: unpacked into the pool, every ext4 partition checked
+    local t l p n=0 rc=0
+    mkdir -p "$A/tmp"; t=$(mktemp -d "$A/tmp/sd-verify.XXXXXX")
+    if ! nice -n 19 ionice -c3 zstd -d -q -o "$t/img" "$1"; then rm -rf "$t"; return 1; fi
+    if [ "$(stat -c %s "$t/img")" != "$(blockdev --getsize64 /dev/boot)" ]; then
+        echo "WARNING: the image is not the size of the card" >&2; rm -rf "$t"; return 1
+    fi
+    l=$(losetup -f --show -P "$t/img") || { rm -rf "$t"; return 1; }
+    udevadm settle
+    for p in "$l"p*; do
+        case $(blkid -o value -s TYPE "$p" 2>/dev/null) in ext2|ext3|ext4) ;; *) continue ;; esac
+        e2fsck -p -E journal_only "$p" >/dev/null 2>&1 || true   # on the copy, as when the card boots
+        e2fsck -f -n "$p" >/dev/null 2>&1 || { echo "WARNING: partition ${p##*p} of the image is not clean" >&2; rc=1; }
+        n=$((n + 1))
+    done
+    losetup -d "$l"; rm -rf "$t"
+    (( n )) || { echo "WARNING: no ext4 partition found in the image" >&2; rc=1; }
+    return $rc
+}
+sd_image() {   # sd_image [--if-changed]
+    local state try
+    mkdir -p "$sdd"; state=$(sd_state)
+    if [ "${1:-}" = --if-changed ] && [ -f "$sdd/sd-boot.img.zst" ] && [ "$(cat "$sdd/sd-boot.state" 2>/dev/null)" = "$state" ] &&
+       (( $(date +%s) - $(stat -c %Y "$sdd/sd-boot.img.zst") < ${SD_MAX_AGE_DAYS:-7} * 86400 - 3600 )); then
+        echo "boot medium unchanged since the image of $(cat "$sdd/sd-boot.date" 2>/dev/null)"; return 0
+    fi
+    for try in 1 2; do
+        sfdisk -d /dev/boot > "$sdd/sd-boot.sfdisk.part" 2>/dev/null || true
+        if nice -n 19 ionice -c3 dd if=/dev/boot bs=4M status=none | z -3 -o "$sdd/sd-boot.img.zst.part" &&
+           sd_verify "$sdd/sd-boot.img.zst.part"; then
+            mv "$sdd/sd-boot.img.zst.part" "$sdd/sd-boot.img.zst"; mv "$sdd/sd-boot.sfdisk.part" "$sdd/sd-boot.sfdisk"
+            (cd "$sdd" && sha256sum sd-boot.img.zst > sd-boot.img.zst.sha256)
+            date -Is > "$sdd/sd-boot.date"; echo "$state" > "$sdd/sd-boot.state"
+            if [ -n "${OWNER:-}" ]; then chown -R "$OWNER" "$sdd"; chmod -R u+rwX,g+rwX,o-rwx "$sdd"; fi
+            echo "boot medium image: $sdd/sd-boot.img.zst ($(du -h "$sdd/sd-boot.img.zst" | cut -f1), checked)"
+            return 0
+        fi
+        echo "WARNING: boot medium image, attempt $try, failed its check" >&2
+    done
+    rm -f "$sdd"/*.part
+    echo "WARNING: the previous boot medium image stays" >&2
+    return 1
+}
+if [ "${1:-}" = --sd-only ]; then sd_image "${2:-}" && exit 0; exit 1; fi
 
 # images the stacks deploy (services in inactive profiles, e.g. the optional
 # standalone controller, are left out; set COMPOSE_PROFILES in a stack's .env
@@ -176,16 +247,9 @@ if [ -n "$newest" ]; then
     case "$apps" in *FAILED*) echo "WARNING: newest UniFi OS console backup is incomplete: $apps" >&2 ;; esac
 fi
 
-# image of the boot medium (on request)
-if [ "${1:-}" = --sd-image ]; then
-    sdd="$DEST/sd-card"; mkdir -p "$sdd"
-    sfdisk -d /dev/boot > "$sdd/sd-boot.sfdisk" 2>/dev/null || true
-    nice -n 19 ionice -c3 dd if=/dev/boot bs=4M status=none | z -3 -o "$sdd/sd-boot.img.zst.part"
-    mv "$sdd/sd-boot.img.zst.part" "$sdd/sd-boot.img.zst"
-    (cd "$sdd" && sha256sum sd-boot.img.zst > sd-boot.img.zst.sha256)
-    date -Is > "$sdd/sd-boot.date"
-    echo "boot medium image: $sdd/sd-boot.img.zst ($(du -h "$sdd/sd-boot.img.zst" | cut -f1))"
-fi
+# image of the boot medium (on request; the set is finished even if it fails)
+sd_failed=0
+if [ "${1:-}" = --sd-image ]; then sd_image || sd_failed=1; fi
 
 {
     echo "recovery set, $(date -Is)"
@@ -216,6 +280,7 @@ fi
 # readable for UniFi Drive (and its cloud backup) when kept in a share
 if [ -n "${OWNER:-}" ]; then chown -R "$OWNER" "$DEST"; chmod -R u+rwX,g+rwX,o-rwx "$DEST"; fi
 echo "recovery set: $B ($(du -sh "$B" | cut -f1))"
+exit $sd_failed
 SH
 chmod 755 /usr/local/sbin/unas-backup
 
@@ -242,10 +307,35 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
+# before the nightly cloud syncs, so a new image goes up the same night
+cat > /etc/systemd/system/unas-sd-image.service <<'UNIT'
+[Unit]
+Description=Image of the UNAS boot medium when the host changed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/unas-backup --sd-only --if-changed
+Nice=19
+IOSchedulingClass=idle
+UNIT
+cat > /etc/systemd/system/unas-sd-image.timer <<'UNIT'
+[Unit]
+Description=Nightly check of the UNAS boot medium image
+
+[Timer]
+OnCalendar=*-*-* 00:30
+
+[Install]
+WantedBy=timers.target
+UNIT
 systemctl daemon-reload
 if [ "$WEEKLY" = true ]; then
     systemctl enable --now unas-backup.timer >/dev/null 2>&1
     echo "weekly run: $(systemctl show -p NextElapseUSecRealtime --value unas-backup.timer)"
+fi
+if [ "$SD_NIGHTLY" = true ]; then
+    systemctl enable --now unas-sd-image.timer >/dev/null 2>&1
+    echo "boot medium check: $(systemctl show -p NextElapseUSecRealtime --value unas-sd-image.timer), image at the latest every $(sed -n 's/^SD_MAX_AGE_DAYS="\(.*\)"$/\1/p' /etc/unas-backup.conf) days"
 fi
 echo "installed: unas-backup -> $DEST"
 EOF

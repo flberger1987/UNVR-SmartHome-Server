@@ -61,8 +61,8 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | UniFi Protect (settings, users, device certificate; no video) | Protect itself, after settings changes | `/srv/unifi-protect/backups/*.zip` inside UniFi OS, newest two in the recovery set (`protect/`) | on change |
 | UniFi OS console (console settings, users, Network, Protect) | Control Plane → Backups → Automatic Backups (set: weekly, Friday 04:00, keep 10), or "Backup Now" | local `/data/unifi-core/local-backups/<time>/*.unifi`, newest two in the recovery set (`unifi-os/`, with `.metadata.json`); uploaded to the Ubiquiti cloud (Remote Access on) | weekly |
 | Not in any backup | Protect's video, events and its Postgres database on `srv.img` (Protect's backup holds its settings only) | — | — |
-| SD card image | `unas-backup --sd-image` (or `backup-unas.sh … --sd-image`) | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`) | after host changes |
-| Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set; the monitor's Telegram token is in no backup) | Git | — |
+| SD card image | `backup-unas.sh … --sd-nightly` installs `unas-sd-image.timer`: every night at 00:30 a new image when the host changed since the last one (units, scripts, settings, firmware; not logs or the `/data` databases), at the latest every `SD_MAX_AGE_DAYS` (7, in `/etc/unas-backup.conf`). Each image is unpacked into the pool and every partition checked (journal replay, `e2fsck`) before it replaces the previous one; a failed check keeps the old image and leaves the unit failed, which the monitor reports. By hand: `unas-backup --sd-only` | `<share>/UNAS-Recovery/sd-card/sd-boot.img.zst` (+ `.sha256`, `.sfdisk`, `.date`, `.state`) | nightly check |
+| Host settings | the install scripts in this repository (and `host-files.tar.zst` in the set without the monitor's Telegram token; the SD card image holds the whole card, token included) | Git | — |
 
 Check a set without changing anything (checksums, every archive
 decompresses, the Protect zips are readable, which apps each console backup
@@ -121,9 +121,9 @@ the Dreame cloud). Repeat it after larger LoxBerry changes.
 
 The pool still holds Docker, every image, container and app data.
 
-1. Preferred: write the last `sd-boot-*.img.zst` to a card of at least the
-   same size (31.3 GB here) on another machine,
-   `zstd -dc sd-boot-<date>.img.zst | sudo dd of=/dev/<card> bs=4M`, and boot.
+1. Preferred: write the last `sd-boot.img.zst` (its date in `sd-boot.date`)
+   to a card of at least the same size (31.3 GB here) on another machine,
+   `zstd -dc sd-boot.img.zst | sudo dd of=/dev/<card> bs=4M`, and boot.
    The host comes back exactly as it was imaged (host tuning, SSH keys, Drive
    state of that day); nothing else is needed. *(Not tested on this unit.)*
 2. Without an image: the UNVR has to get its stock firmware back on a new
