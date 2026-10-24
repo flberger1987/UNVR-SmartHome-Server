@@ -58,7 +58,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 
 | What | How | Where | When |
 | --- | --- | --- | --- |
-| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network, Protect and console backups | `extras/unas-apps/backup-unas.sh root@<UNAS> --share <Drive share> --weekly` installs `unas-backup` and a weekly timer (Sunday 01:00); `unas-backup` on the NAS runs it by hand | `<share>/UNAS-Recovery/recovery/` (linked from `.unas-apps/backup/recovery`) | weekly, and after app installs/updates |
+| Recovery set: finished images (UniFi OS with its installed apps), stack config, console identities, LoxBerry data, newest Network, Protect and console backups | `extras/unas-apps/backup-unas.sh root@<UNAS> --share <Drive share> --weekly` installs `unas-backup` and a weekly timer (Saturday 23:00, finished before the nightly cloud backup at 02:00; finished files are handed to UniFi Drive at once, `.part` files stay root-only); `unas-backup` on the NAS runs it by hand | `<share>/UNAS-Recovery/recovery/` (linked from `.unas-apps/backup/recovery`) | weekly, and after app installs/updates |
 | Off-box copy | a UniFi Drive remote backup of that share (here: the nightly OneDrive task at 02:00), unencrypted | cloud | nightly |
 | UniFi Network | autobackup in the Network app (set: daily 03:00, keep 7) | inside UniFi OS, newest two in the recovery set | daily |
 | UniFi Protect (settings, users, device certificate; no video) | Protect itself, after settings changes | `/srv/unifi-protect/backups/*.zip` inside UniFi OS, newest two in the recovery set (`protect/`) | on change |

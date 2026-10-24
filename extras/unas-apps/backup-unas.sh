@@ -8,7 +8,8 @@
 #                 UNAS-Recovery/ (e.g. a share that Drive backs up to OneDrive);
 #                 <pool>/.unas-apps/backup/recovery then links to it.
 #                 Default: <pool>/.unas-apps/backup/
-#   --weekly      run every Sunday 01:00 on the UNAS (before nightly cloud syncs)
+#   --weekly      run every Saturday 23:00 on the UNAS (done long before the
+#                 nightly boot medium check and cloud syncs)
 #   --sd-nightly  check the boot medium every night at 00:30 and image it when
 #                 the host changed since the last image, at the latest every
 #                 SD_MAX_AGE_DAYS (7; set in /etc/unas-backup.conf, 1 = every
@@ -101,6 +102,10 @@ volume=$(for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && echo "$v" && break
 A="$volume/.unas-apps" B="$DEST/recovery"
 mkdir -p "$B/images" "$B/network"
 z() { nice -n 19 ionice -c3 zstd -T2 -6 -q -f "$@"; }   # -f: replace leftover .part files
+# a finished file is handed to UniFi Drive at once, not only at the end: a
+# cloud backup of the share starting meanwhile failed on root-only files
+# ("permission denied"); .part files stay root-only, so none is ever uploaded
+own() { if [ -n "${OWNER:-}" ]; then chown "$OWNER" "$@"; chmod u+rw,g+rw,o-rwx "$@"; fi; }
 # the nightly image and the weekly set may meet: wait for the other one
 exec 9>/run/unas-backup.lock; flock -w 7200 9 || { echo 'another unas-backup is still running' >&2; exit 1; }
 
@@ -181,7 +186,7 @@ for img in $images; do
     id=$(docker image inspect -f '{{.Id}}' "$img" 2>/dev/null) || { echo "missing image $img (skipped)"; continue; }
     f="$B/images/$(echo "$img" | tr '/:' '__').tar.zst"
     if [ -f "$f" ] && [ "$(cat "$f.id" 2>/dev/null)" = "$id" ]; then echo "unchanged $img"; continue; fi
-    docker save "$img" | z -o "$f.part" && mv "$f.part" "$f" && echo "$id" > "$f.id"
+    docker save "$img" | z -o "$f.part" && mv "$f.part" "$f" && echo "$id" > "$f.id" && own "$f" "$f.id"
     echo "saved $img ($(du -h "$f" | cut -f1))"
 done
 # drop saved images no stack uses any more
@@ -194,32 +199,33 @@ done
 # stack configuration and identities (relative to <pool>/.unas-apps)
 (cd "$A" && tar -cf - --ignore-failed-read data/stacks dockge docker/daemon.json \
     $(ls -d uckp/system.info uckp/board.info uckp/mtd protect/system.info protect/board.info 2>/dev/null) \
-    ) | z -o "$B/config.tar.zst.part" && mv "$B/config.tar.zst.part" "$B/config.tar.zst"
+    ) | z -o "$B/config.tar.zst.part" && mv "$B/config.tar.zst.part" "$B/config.tar.zst" && own "$B/config.tar.zst"
 
 # host files for reference (recreated by the install scripts); the monitor's
 # conf holds the Telegram bot token and stays out (the set is unencrypted)
 tar -C / -cf - --ignore-failed-read --exclude=etc/unas-monitor.conf $(cd / && ls -d usr/local/sbin/unas-* usr/local/bin/docker \
     etc/systemd/system/unas-* etc/systemd/system/var-tmp.mount etc/systemd/journald.conf.d/90-unas-* \
     etc/postgresql/14/main/conf.d/90-unas-* etc/unas-backup.conf root/.ssh/authorized_keys 2>/dev/null) 2>/dev/null \
-    | z -o "$B/host-files.tar.zst.part" && mv "$B/host-files.tar.zst.part" "$B/host-files.tar.zst"
+    | z -o "$B/host-files.tar.zst.part" && mv "$B/host-files.tar.zst.part" "$B/host-files.tar.zst" && own "$B/host-files.tar.zst"
 
 # private system sheet
 if [ -f "$DEST/SYSTEM.md" ]; then cp -p "$DEST/SYSTEM.md" "$B/SYSTEM.md"
 elif [ -f "$A/backup/SYSTEM.md" ]; then cp -pL "$A/backup/SYSTEM.md" "$B/SYSTEM.md"; fi
+[ -f "$B/SYSTEM.md" ] && own "$B/SYSTEM.md"
 
 # LoxBerry's data volume
 lv=$(docker volume inspect -f '{{.Mountpoint}}' unas-apps_loxberry 2>/dev/null || true)
 if [ -n "$lv" ]; then
     # live volume: tar exits 1 when a file changes while it is read; that is fine
     { tar -C "$lv" -cf - --warning=no-file-changed . 2>/dev/null || [ $? -eq 1 ]; } \
-        | z -o "$B/loxberry-volume.tar.zst.part" && mv "$B/loxberry-volume.tar.zst.part" "$B/loxberry-volume.tar.zst"
+        | z -o "$B/loxberry-volume.tar.zst.part" && mv "$B/loxberry-volume.tar.zst.part" "$B/loxberry-volume.tar.zst" && own "$B/loxberry-volume.tar.zst"
     [ -f "$B/loxberry-volume.tar.zst" ] || echo "WARNING: LoxBerry volume not saved" >&2
 fi
 
 # newest Network backups: UniFi OS container, standalone controller
 for d in "$A"/uckp/data/unifi/data/backup/autobackup "$A"/data/unifi-network-application/data/backup/autobackup; do
     [ -d "$d" ] || continue
-    { ls -t "$d"/*.unf 2>/dev/null || true; } | head -2 | while read -r f; do cp -p "$f" "$B/network/"; done
+    { ls -t "$d"/*.unf 2>/dev/null || true; } | head -2 | while read -r f; do cp -p "$f" "$B/network/" && own "$B/network/${f##*/}"; done
 done
 { ls -t "$B"/network/*.unf 2>/dev/null || true; } | tail -n +7 | xargs -r rm -f
 
@@ -228,12 +234,12 @@ done
 # stay, UniFi OS tells the backup type from them when one is uploaded
 mkdir -p "$B/protect" "$B/unifi-os"
 { ls -t "$A"/uckp/srv/unifi-protect/backups/unifi_protect_backup*.zip 2>/dev/null || true; } | head -2 \
-    | while read -r f; do cp -p "$f" "$B/protect/"; done
+    | while read -r f; do cp -p "$f" "$B/protect/" && own "$B/protect/${f##*/}"; done
 { ls -t "$B"/protect/*.zip 2>/dev/null || true; } | tail -n +3 | xargs -r rm -f
 { ls -t "$A"/uckp/data/unifi-core/local-backups/*/*.unifi 2>/dev/null || true; } | head -2 | while read -r f; do
-    cp -p "$f" "$B/unifi-os/"
+    cp -p "$f" "$B/unifi-os/" && own "$B/unifi-os/${f##*/}"
     m="$(dirname "$f")/metadata.json"
-    if [ -f "$m" ]; then cp -p "$m" "$B/unifi-os/$(basename "$f" .unifi).metadata.json"; fi
+    if [ -f "$m" ]; then cp -p "$m" "$B/unifi-os/$(basename "$f" .unifi).metadata.json" && own "$B/unifi-os/$(basename "$f" .unifi).metadata.json"; fi
 done
 { ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | tail -n +3 | while read -r f; do rm -f "$f" "${f%.unifi}.metadata.json"; done
 # what a console backup holds (an app whose export failed is missing in it)
@@ -301,7 +307,7 @@ cat > /etc/systemd/system/unas-backup.timer <<'UNIT'
 Description=Weekly recovery set of the UNAS apps
 
 [Timer]
-OnCalendar=Sun 01:00
+OnCalendar=Sat 23:00
 Persistent=true
 
 [Install]
