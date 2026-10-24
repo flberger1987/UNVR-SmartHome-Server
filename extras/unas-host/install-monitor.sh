@@ -13,11 +13,15 @@
 # Installs /usr/local/sbin/unas-monitor and unas-monitor.timer (every 5 min,
 # Nice 19). Every run checks, read-only:
 #   host: systemctl --failed; the project's units (Docker, netns guard, RAM
-#     logs, log trim, backup timer) active and enabled; the UniFi OS/Drive
+#     logs, log trim, backup and boot medium timers, fan set points) active and
+#     enabled; the UniFi OS/Drive
 #     services (unifi-core, unifi-drive, Postgres, Samba, storage daemons ...);
 #     UniFi OS state; NTP sync; RAID (degraded array or failed member - a
 #     resync is no alarm); pool mounted and writable, Btrfs error counters;
-#     disk use of the pool, the SD card and /run; memory, swap, temperatures, fans
+#     disk use of the pool, the SD card and /run; memory, swap, temperatures (CPU
+#     from 85 °C, other sensors from 90 °C), fans;
+#     drive temperatures (from the SMART values UniFi's uhwd polls anyway, no
+#     extra disk access)
 #   containers: every container the stacks deploy (docker compose config;
 #     services in inactive profiles are not expected) exists, runs, is not
 #     unhealthy, does not restart in a loop and still has its LAN interface
@@ -80,12 +84,14 @@ DISK_MAX_PCT=90
 MEM_MIN_MB=150
 SWAP_MAX_PCT=90
 TEMP_MAX_C=90
+CPU_TEMP_MAX_C=85       # the CPU sensor (fan set point 75 °C with install-fan-setpoints.sh)
+DISK_TEMP_MAX_C=55      # drives (usually rated up to 60 °C)
 # host units that must be active and enabled; the backup timer only if enabled
 HOST_UNITS="unas-docker unas-netns-guard unas-volatile-logs unas-log-trim var-tmp.mount
   unifi-core unifi-drive unifi-directory ulp-go uos-agent unifi-identity-update
   postgresql@14-main nginx smbd ssh usd ustated usdbd uhwd rclone-rcd earlyoom cron
   systemd-journald systemd-timesyncd"
-HOST_UNITS_IF_ENABLED="unas-backup.timer"
+HOST_UNITS_IF_ENABLED="unas-backup.timer unas-sd-image.timer unas-fan-config"
 # units inside the containers (LoxBerry: also every enabled service)
 UNIFI_OS_UNITS="unifi-core unifi unifi-protect mongodb unifi-mongodb postgresql@14-main
   postgresql@14-protect nginx ulp-go unifi-directory"
@@ -282,7 +288,7 @@ check_raid() {
 
 V='' A=''
 check_storage() {
-    local st=0 opts errs pct mnt lbl use=() avail swp t ty z h f n v k lab pmin temps=() fans=()
+    local st=0 opts errs pct mnt lbl use=() avail swp t ty z h f n v k lab pmin lim temps=() fans=()
     (( up < grace )) && st=1
     for v in /volume/*-*-*-*-*; do mountpoint -q "$v" && { V=$v; break; }; done
     if [ -z "$V" ]; then pending pool "Speicherpool nicht eingehängt" "$st"
@@ -310,7 +316,8 @@ check_storage() {
     for z in /sys/class/thermal/thermal_zone*; do
         rd t "$z/temp"; rd ty "$z/type"; [ -n "$t" ] || continue
         ty=${ty%-thermal}; ty=${ty^^}; t=$(( t / 1000 )); temps+=("$ty $t °C")
-        (( t >= TEMP_MAX_C )) && problem "temp:$ty" "Temperatur hoch: $ty $t °C"
+        lim=$TEMP_MAX_C; [ "$ty" = CPU ] && lim=$CPU_TEMP_MAX_C
+        (( t >= lim )) && problem "temp:$ty" "Temperatur hoch: $ty $t °C (Grenze $lim °C)"
     done
     for h in /sys/class/hwmon/hwmon*; do
         for f in "$h"/temp*_input; do
@@ -333,6 +340,23 @@ check_storage() {
         done
     done
     ok "Temperaturen: $(IFS=,; echo "${temps[*]}" | sed 's/,/, /g')${fans[*]:+; Lüfter ${fans[*]} U/min}"
+    check_disk_temps
+}
+
+# drive temperatures: UniFi's uhwd polls SMART anyway and keeps the values in
+# a cache; reading that adds no disk access (no smartctl here)
+check_disk_temps() {
+    local c=/run/ustd/hw_polling.cache n t age dt=()
+    if [ ! -r "$c" ]; then pending disktemp "Plattentemperaturen nicht verfügbar ($c fehlt)" 0; return; fi
+    age=$(( $(date +%s) - $(stat -c %Y "$c") ))
+    (( age > 1800 )) && problem disktemp-stale "Plattentemperaturen seit $(( age / 60 )) min nicht aktualisiert (uhwd?)"
+    while read -r n t; do
+        [[ $t =~ ^[0-9]+$ ]] || continue
+        dt+=("$n $t °C")
+        (( t >= DISK_TEMP_MAX_C )) && problem "disktemp:$n" "Festplatte zu warm: $n $t °C (Grenze $DISK_TEMP_MAX_C °C)"
+    done < <(jq -r '.disk_sysfs // {} | to_entries[] | "\(.value.node) \(.value.smart.temperature // "")"' "$c" 2>/dev/null | sort)
+    if (( ${#dt[@]} )); then ok "Plattentemperaturen: $(IFS=,; echo "${dt[*]}" | sed 's/,/, /g')"
+    else pending disktemp "Plattentemperaturen: keine Werte in $c" 0; fi
 }
 
 # ---- containers ------------------------------------------------------------------
@@ -580,7 +604,7 @@ set_telegram() {
         echo "# Overrides, all settings: head -60 /usr/local/sbin/unas-monitor"
         echo "#IGNORE_CONTAINERS=\"name\"        # containers stopped on purpose"
         echo "#IGNORE_FAILED=\"analytic-report.service other.service\""
-        echo "#GRACE_MIN=15 GRACE_MIN_UNIFI_OS=60 DISK_MAX_PCT=90 TEMP_MAX_C=90"
+        echo "#GRACE_MIN=15 GRACE_MIN_UNIFI_OS=60 DISK_MAX_PCT=90 TEMP_MAX_C=90 CPU_TEMP_MAX_C=85 DISK_TEMP_MAX_C=55"
       fi
       printf "TELEGRAM_TOKEN='%s'\nTELEGRAM_CHAT_ID='%s'\n" "$token" "$chat"
     } > "$CONF.new" && chown root:root "$CONF.new" && chmod 600 "$CONF.new" && mv "$CONF.new" "$CONF"

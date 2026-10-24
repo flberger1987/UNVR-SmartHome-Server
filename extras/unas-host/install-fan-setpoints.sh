@@ -16,7 +16,10 @@
 # set points changed (ustd reads an override from there), and installs
 # unas-fan-config.service, which puts that file into config.fan whenever
 # usdbd starts, so the set points also hold after a reboot or a restart of
-# Ubiquiti's daemons. --reset removes both and restores the defaults.
+# Ubiquiti's daemons. At boot it runs before uhwd; a change while uhwd runs
+# restarts uhwd, which does not reliably take a new config.fan otherwise
+# (after two quick changes it kept the old output). --reset removes both and
+# restores the defaults.
 #
 # Measured 2026-10-24 with 75/44 under load: fans ~45-60 % (4,200-5,500 rpm),
 # CPU 88 -> 78 °C within two minutes; the drives follow over half an hour.
@@ -47,7 +50,8 @@ cat > /usr/local/sbin/unas-fan-config <<'PY'
 #!/usr/bin/python3
 # Put /etc/ustd/fan.conf into config.fan of ustd's status database, which the
 # fan controller in uhwd follows (installed by install-fan-setpoints.sh).
-import json, sys, threading, time
+# uhwd reads it at its start; a running uhwd is restarted after a change.
+import json, subprocess, sys, threading, time
 from ustd.statusdb.sdb_client import SDBClient
 
 def client():
@@ -71,6 +75,9 @@ for _ in range(20):
     time.sleep(0.5)
     if client().get("config.fan") == want:
         print("fan set points applied:", json.dumps(want.get("PID", want)))
+        if subprocess.run(["systemctl", "is-active", "-q", "uhwd.service"]).returncode == 0:
+            subprocess.run(["systemctl", "--no-block", "try-restart", "uhwd.service"])
+            print("uhwd restarted to take them")
         sys.exit(0)
 sys.exit("config.fan did not take the new values")
 PY
@@ -79,7 +86,8 @@ chmod 755 /usr/local/sbin/unas-fan-config
 cat > /etc/systemd/system/unas-fan-config.service <<'UNIT'
 [Unit]
 Description=Fan set points from /etc/ustd/fan.conf into ustd's status database
-After=usdbd.service uhwd.service
+After=usdbd.service
+Before=uhwd.service
 PartOf=usdbd.service
 ConditionPathExists=/etc/ustd/fan.conf
 
@@ -107,6 +115,7 @@ for _ in range(60):
 c.update("config.fan", get_default_fan_config()); time.sleep(2)
 print("fan set points back to the defaults:", json.dumps(get_default_fan_config().get("PID")))
 PY
+    systemctl try-restart uhwd.service
     exit 0
 fi
 
