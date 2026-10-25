@@ -220,7 +220,14 @@ database small:
 recorder:
   purge_keep_days: 10
   commit_interval: 30
+  exclude:
+    event_types:
+      - loxone_event   # PyLoxone (Loxone via HACS) fires it with > 32 kB
 ```
+
+MQTT: an extra broker user on LoxBerry with `loxberry/mqtt-user.sh` (see the
+[LoxBerry pitfalls](../../docs/RECOVERY.md#loxberry) in RECOVERY.md); Home Assistant reaches the broker on
+LoxBerry's address, port 1883.
 
 Memory: about 300 MB in the base setup (measured 2026-10-25); with UniFi OS
 (Network + Protect) and LoxBerry on the 4 GB box about 0.8 GB stays available.
