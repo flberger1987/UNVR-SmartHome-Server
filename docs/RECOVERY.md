@@ -438,6 +438,7 @@ output in the journal (RAM). A run takes 4–8 seconds.
 | changing the password in the web interface fails | it asks for the old password and SecurePIN; the installer in the image build set random ones | `loxberry/set-passwords.sh` sets them as root in the container |
 | LoxBerry tools fail via `docker exec`: `Can't locate LoxBerry/System.pm in @INC` | `docker exec` does not read `/etc/environment` (`PERL5LIB`, `LB*` paths) | `set -a; . /etc/environment; set +a` first (the scripts do) |
 | MQTT broker open to the LAN without login (`allow_anonymous true`) | LoxBerry's MQTT basics were never saved, so no broker user exists | `loxberry/shelly-mqtt.sh` sets user and password and runs `mqtt-handler.pl action=mosquitto_set`; it checks that anonymous logins are refused |
+| an extra MQTT user (e.g. for Home Assistant) disappears after saving LoxBerry's MQTT settings | LoxBerry rewrites `/etc/mosquitto/conf.d/mosq_passwd` with only its own broker user | `extras/unas-apps/loxberry/mqtt-user.sh root@<UNAS> <user> \| pbcopy`: stores the user's hash in `config/system/mosquitto/extra_users` (LoxBerry volume) and installs `mosq-extra-users.path`, which puts it back after every rewrite and reloads Mosquitto |
 
 ### UniFi OS in a container (Cloud Key Gen2 Plus)
 
