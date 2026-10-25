@@ -1,0 +1,33 @@
+# Home Assistant (Container install: no Supervisor, no add-ons) on its own LAN
+# address. Config and the recorder database on the RAID ($APPS_ROOT/homeassistant);
+# the recovery set keeps the config without the database.
+name: homeassistant
+
+networks:
+  lan:
+    external: true
+    name: unas-lan
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10.4
+    container_name: homeassistant
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${HA_IP:?set in .env}
+    mac_address: ${HA_MAC:?set in .env}
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - ${APPS_ROOT:?set in .env}/homeassistant/config:/config
+      - ${APPS_ROOT}/stacks/unas-apps/resolv.conf:/etc/resolv.conf:ro
+    logging:
+      options: { max-size: "5m", max-file: "2" }
+# Setup: copy to <pool>/.unas-apps/data/stacks/homeassistant/ with a .env:
+#   APPS_ROOT=<pool>/.unas-apps/data
+#   HA_IP=<free LAN address outside the DHCP range>
+#   HA_MAC=02:42:c0:a8:01:09
+#   TZ=Europe/Vienna
+# then `docker compose up -d` there (or in Dockge) and finish the onboarding at
+# http://<HA_IP>:8123. See ../README.md.

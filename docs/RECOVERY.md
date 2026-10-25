@@ -20,7 +20,8 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 │     ├─ docker/          static Docker 28.5.2, crun, compose; data-root
 │     ├─ data/stacks/     unas-apps (LoxBerry; optional standalone controller),
 │     │                   uckp (UniFi OS), protect (optional UNVR Protect),
-│     │                   one per MJPEG camera (optional, go2rtc)
+│     │                   one per MJPEG camera (optional, go2rtc),
+│     │                   homeassistant (optional)
 │     ├─ dockge/          Dockge's own stack
 │     ├─ uckp/            Btrfs subvolume, no CoW, not in snapshots:
 │     │                   data/ persistent/ srv.img (ext4, the "HDD") identity
@@ -28,7 +29,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 └─ macvlan network unas-lan on the LAN port, one LAN address per app:
    UniFi OS (Cloud Key Gen2 Plus 6.0.11: Network 10.6.106, Protect 7.x)
    LoxBerry 4 · Dockge · [standalone UniFi Network Server] · [UNVR Protect]
-   · [MJPEG camera for Protect]
+   · [MJPEG camera for Protect] · [Home Assistant]
 ```
 
 | Component | Built by | Documentation |
@@ -39,6 +40,7 @@ UNVR (4 bays, Annapurna AL-324, 4 GB RAM, boot medium: 32 GB SD card on USB)
 | Docker, macvlan, app stack | `extras/unas-apps/install-on-unas.sh` | [extras/unas-apps/README.md](../extras/unas-apps/README.md) |
 | UniFi OS (Network + Protect) | `extras/unas-apps/uckp/install-uckp.sh` | [README section](../extras/unas-apps/README.md#unifi-os-as-a-cloud-key-gen2-plus) |
 | MJPEG camera in Protect (optional) | `extras/unas-apps/mjpeg-camera/install-mjpeg-camera.sh` | [README section](../extras/unas-apps/README.md#mjpeg-camera-in-unifi-protect) |
+| Home Assistant (optional) | `extras/unas-apps/homeassistant/compose.yaml` | [README section](../extras/unas-apps/README.md#home-assistant) |
 | Recovery set | `extras/unas-apps/backup-unas.sh`, `restore-unas.sh` | [below](#backups) |
 | Health monitor, Telegram alerts | `extras/unas-host/install-monitor.sh` | [below](#11-monitoring-telegram) |
 

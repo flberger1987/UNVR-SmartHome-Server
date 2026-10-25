@@ -12,6 +12,7 @@ address. Verified on 2026-10-21 on the four-bay UNVR from the main README.
 | UniFi Protect (UNVR 5.1.33) | `https://<PROTECT_IP>/` | optional, see [UniFi Protect](#unifi-protect) |
 | UniFi OS (Cloud Key Gen2 Plus 6.0.11) | `https://<UCKP_IP>/` | optional, Network + Protect in one UniFi OS, see [UniFi OS as a Cloud Key](#unifi-os-as-a-cloud-key-gen2-plus) |
 | MJPEG camera for Protect (go2rtc 1.9.14) | `rtsp://<CAM_IP>:8554/<stream>`, ONVIF on port 1984 | optional, e.g. a Loxone Intercom as a Protect camera, see [MJPEG camera in UniFi Protect](#mjpeg-camera-in-unifi-protect) |
+| Home Assistant 2026.10 (Container) | `http://<HA_IP>:8123` | optional, see [Home Assistant](#home-assistant) |
 
 LoxBerry also answers SSH on port 22 for the user `loxberry`, keys only: put
 public keys into `/opt/loxberry/.ssh/authorized_keys` (in the `loxberry`
@@ -197,6 +198,32 @@ backup"). What made it work (2026-10-22):
 
 The backup is first imported into `ace_restore`; if a restore fails, the
 running app keeps an empty `ace`, nothing else is touched.
+
+## Home Assistant
+
+`homeassistant/compose.yaml`: Home Assistant as a plain container (the
+"Container" install type) on its own LAN address. Home Assistant OS and
+"Supervised" need the Supervisor, which requires cgroup and AppArmor features
+this kernel lacks; so there is no add-on store and no update button. What an
+add-on would be runs as a container of its own (an MQTT broker already runs in
+LoxBerry; ESPHome, Zigbee2MQTT, Node-RED as stacks in Dockge), and an update
+is a new image tag in the compose file. Integrations and HACS work as usual.
+There is no free USB port (the SD card reader takes it) and no Bluetooth: use
+network devices (a LAN/PoE Zigbee coordinator, ESPHome Bluetooth proxies).
+
+Config and the recorder database live on the RAID
+(`<pool>/.unas-apps/data/homeassistant/config`); the recovery set keeps the
+config without databases and logs. Add to `configuration.yaml`, to keep the
+database small:
+
+```yaml
+recorder:
+  purge_keep_days: 10
+  commit_interval: 30
+```
+
+Memory: about 300 MB in the base setup (measured 2026-10-25); with UniFi OS
+(Network + Protect) and LoxBerry on the 4 GB box about 0.8 GB stays available.
 
 ## MJPEG camera in UniFi Protect
 

@@ -27,6 +27,7 @@
 #                               stacks run <image>:live and the running
 #                               containers are committed to it first
 #   config.tar.zst              stacks (compose.yaml, .env, resolv.conf), Dockge,
+#                               Home Assistant's config (no database or logs),
 #                               identities of the UniFi OS containers, daemon.json
 #   host-files.tar.zst          host units/scripts/settings, for reference
 #                               (never /etc/unas-monitor.conf: Telegram token)
@@ -196,9 +197,13 @@ for f in "$B"/images/*.tar.zst; do
     grep -qx -F "$(basename "$f")" <<< "$keep" || { rm -f "$f" "$f.id"; echo "removed stale $(basename "$f")"; }
 done
 
-# stack configuration and identities (relative to <pool>/.unas-apps)
-(cd "$A" && tar -cf - --ignore-failed-read data/stacks dockge docker/daemon.json \
-    $(ls -d uckp/system.info uckp/board.info uckp/mtd protect/system.info protect/board.info 2>/dev/null) \
+# stack configuration and identities (relative to <pool>/.unas-apps); apps that
+# keep their config next to the stacks (Home Assistant: data/homeassistant/config)
+# without databases, logs, Python packages and their own backups
+(cd "$A" && tar -cf - --ignore-failed-read --exclude="*.db" --exclude="*.db-shm" --exclude="*.db-wal" \
+    --exclude="*.log" --exclude="*.log.[0-9]" --exclude="*.log.fault" --exclude=deps --exclude=backups --exclude=tts \
+    data/stacks dockge docker/daemon.json \
+    $(ls -d uckp/system.info uckp/board.info uckp/mtd protect/system.info protect/board.info data/homeassistant/config 2>/dev/null) \
     ) | z -o "$B/config.tar.zst.part" && mv "$B/config.tar.zst.part" "$B/config.tar.zst" && own "$B/config.tar.zst"
 
 # host files for reference (recreated by the install scripts); the monitor's
