@@ -239,13 +239,18 @@ Protect. The guard restarts it above a limit and reports it via the monitor's
 Telegram bot:
 
 ```bash
-extras/unas-apps/homeassistant/install-mem-guard.sh root@<UNAS-IP> [--limit 1200]
+extras/unas-apps/homeassistant/install-mem-guard.sh root@<UNAS-IP> [--limit 1200] [--warn 900] [--no-mqtt]
 ```
 
 `ha-mem-guard.timer` checks RAM + swap of the Home Assistant process every 2
-minutes; above the limit (MB) in 2 runs in a row it runs `docker restart
-homeassistant`. `ha-mem-guard --status` shows the current use; `--remove`
-uninstalls it.
+minutes: above `--warn` (MB) one Telegram message (and one when it is back),
+above `--limit` in 2 runs in a row `docker restart homeassistant`. It also
+publishes the values through LoxBerry's MQTT gateway (UDP into the
+`loxberry` container, no broker login) with MQTT discovery, so Home Assistant
+gets a device "UNAS Pro" with its own RAM, swap and total plus the NAS's
+available memory and swap use, with history: a slow leak shows up as a rising
+line long before the limit. `ha-mem-guard --status` shows the current use;
+`--remove` uninstalls it.
 
 ## MJPEG camera in UniFi Protect
 
