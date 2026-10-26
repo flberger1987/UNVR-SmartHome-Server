@@ -1,0 +1,20 @@
+# uix style. An alarm in markdown: red band #C42B22, white text, warning icon.
+style:
+  .: |
+    :host ha-card.text-only ha-markdown { padding: 0; }
+  ha-markdown $: |
+    ha-markdown-element > div {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 8px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: #C42B22;
+      color: #FFFFFF;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    }
+    ha-markdown-element > div > ha-icon { flex: none; --mdc-icon-size: 22px; }
+    ha-markdown-element > div > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    ha-markdown-element > div b { font-size: 15px; font-weight: 700; color: #FFFFFF; }
+    ha-markdown-element > div small { font-size: 13px; color: rgba(255, 255, 255, 0.9); }

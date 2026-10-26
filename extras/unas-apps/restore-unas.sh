@@ -4,10 +4,11 @@
 #   extras/unas-apps/restore-unas.sh root@<UNAS-IP> [--set <dir on the UNAS>] [--check]
 #
 #   --check   only verify the set (checksums, every archive decompresses, the
-#             Protect zips are readable), change nothing
+#             Protect zips and Home Assistant backups are readable), change nothing
 #
-# The app backups in the set (network/*.unf, protect/*.zip, unifi-os/*.unifi)
-# are restored in UniFi OS itself; the script lists them (docs/RECOVERY.md).
+# The app backups in the set (network/*.unf, protect/*.zip, unifi-os/*.unifi,
+# homeassistant/*.tar) are restored in UniFi OS and Home Assistant themselves;
+# the script lists them (docs/RECOVERY.md).
 #
 # Order (docs/RECOVERY.md): converted UNAS with a storage pool, host tuning,
 # install-on-unas.sh (Docker), then this script, then install-uckp.sh /
@@ -64,6 +65,13 @@ if [ "$CHECK" = true ]; then
         if [ -s "$f" ]; then ok "$f" "$apps"; else echo "  BAD ${f#"$B"/} (empty)"; bad=$((bad + 1)); fi
     done
     for f in "$B"/network/*.unf; do [ -e "$f" ] || continue; ok "$f" 'checksum only'; done
+    # Home Assistant: the tar and its unencrypted backup.json (the inner archive is encrypted)
+    for f in "$B"/homeassistant/*.tar; do
+        [ -e "$f" ] || continue
+        if info=$(tar -xOf "$f" ./backup.json 2>/dev/null | jq -r '"\(.name), \(.date[:16])\(if .protected then ", encrypted" else "" end)"' 2>/dev/null) && [ -n "$info" ]; then
+            ok "$f" "$info"
+        else echo "  BAD ${f#"$B"/}"; bad=$((bad + 1)); fi
+    done
     head -n 3 "$B/MANIFEST.txt"
     [ "$bad" -eq 0 ] || { echo "$bad file(s) damaged" >&2; exit 1; }
     exit 0
@@ -106,6 +114,7 @@ echo "App backups in $B (restore them in UniFi OS if its data is new, docs/RECOV
 ls -1t "$B"/unifi-os/*.unifi 2>/dev/null || true   # console with all apps
 ls -1t "$B"/network/*.unf 2>/dev/null | head -3 || true
 ls -1t "$B"/protect/*.zip 2>/dev/null || true
+ls -1t "$B"/homeassistant/*.tar 2>/dev/null || true   # in Home Assistant's onboarding
 EOF
 
 [[ "$check" == true ]] && exit 0

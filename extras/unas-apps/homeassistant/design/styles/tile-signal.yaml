@@ -1,0 +1,22 @@
+# uix style. Tiles in a signal colour (red = alarm, start, stop): as "tile", the icon keeps
+# the tile's color.
+style: |
+  ha-card {
+    --ha-card-background: rgba(28, 28, 31, 0.88);
+    --ha-card-border-radius: 18px;
+    --ha-card-border-width: 0;
+    --ha-card-box-shadow: none;
+    --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --ha-tile-info-primary-font-size: 15px;
+    --ha-tile-info-primary-font-weight: 600;
+    --ha-tile-info-secondary-font-size: 13px;
+    --ha-tile-info-secondary-color: #A1A1AA;
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+  ha-card ha-tile-icon {
+    --tile-icon-color: var(--tile-color);
+    --tile-icon-opacity: 0.2;
+    --tile-icon-hover-opacity: 0.3;
+  }
+  ha-card ha-tile-icon > * { color: var(--tile-color); }

@@ -1,0 +1,21 @@
+# uix style. A page header from markdown ("# Title" and a grey line below).
+style:
+  .: |
+    :host ha-card.text-only ha-markdown { padding: 0 4px; }
+  ha-markdown $: |
+    ha-markdown-element { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+    ha-markdown-element h1 {
+      margin: 6px 0 4px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--primary-text-color);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 0, 0, 0.25);
+    }
+    ha-markdown-element p {
+      margin: 0;
+      font-size: 16px;
+      color: color-mix(in srgb, var(--primary-text-color) 88%, transparent);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 8px rgba(0, 0, 0, 0.35);
+    }

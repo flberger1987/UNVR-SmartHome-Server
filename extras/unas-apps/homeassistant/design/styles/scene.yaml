@@ -1,0 +1,18 @@
+# uix style. Scenes as a segment without an icon; put them in a grid card with "scene-bar".
+style:
+  .: |
+    ha-card {
+      --ha-card-background: transparent;
+      --ha-card-border-radius: 10px;
+      --ha-card-border-width: 0;
+      --ha-card-box-shadow: none;
+      --row-height: 36px;
+      --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+      --ha-tile-info-primary-font-size: 13px;
+      --ha-tile-info-primary-font-weight: 600;
+      --ha-tile-info-primary-color: #E4E4E7;
+    }
+    ha-card ha-tile-icon { display: none; }
+    ha-card ha-tile-info { text-align: center; }
+  ha-tile-container $: |
+    .content { padding: 0 4px; }

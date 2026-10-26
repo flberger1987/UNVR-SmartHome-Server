@@ -89,8 +89,8 @@ extras/unas-apps/loxberry/restore-drill.sh root@<UNAS-IP>   # test LoxBerry from
 
 The recovery set holds the finished images (the UniFi OS containers as
 `uckp-os:live`, with the apps installed inside them), the stack configuration
-with the console identities, LoxBerry's volume and the newest Network, Protect
-and UniFi OS console backups.
+with the console identities, LoxBerry's volume and the newest Network, Protect,
+UniFi OS console and Home Assistant backups.
 
 ## Restoring a controller backup
 
@@ -213,8 +213,19 @@ network devices (a LAN/PoE Zigbee coordinator, ESPHome Bluetooth proxies).
 
 Config and the recorder database live on the RAID
 (`<pool>/.unas-apps/data/homeassistant/config`); the recovery set keeps the
-config without databases and logs. Add to `configuration.yaml`, to keep the
-database small:
+config without databases and logs, and the two newest of Home Assistant's own
+backups (config and database). Turn those on in Settings → System → Backups →
+"Set up backups": daily (here 04:45, before the weekly set on Saturday 23:00
+and the nightly cloud sync), local, keep 7. Home Assistant encrypts them; keep
+the emergency kit it offers there (the key), a restore asks for it. A backup
+of this setup is about 80 MB. Restoring one: a fresh Home Assistant offers
+"Restore from backup" in its onboarding (upload the `.tar`), a running one in
+Settings → System → Backups.
+
+[`homeassistant/design/`](homeassistant/design/README.md): card styles for
+YAML dashboards in the look of Apple Home (uix).
+
+Add to `configuration.yaml`, to keep the database small:
 
 ```yaml
 recorder:

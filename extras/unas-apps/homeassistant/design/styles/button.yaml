@@ -1,0 +1,16 @@
+# uix style. Buttons such as "... cleaned": grey surface, text 14 px bold and centred, no icon.
+style: |
+  ha-card {
+    --ha-card-background: rgba(44, 44, 48, 0.88);
+    --ha-card-border-radius: 18px;
+    --ha-card-border-width: 0;
+    --ha-card-box-shadow: none;
+    --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --ha-tile-info-primary-font-size: 14px;
+    --ha-tile-info-primary-font-weight: 600;
+    --ha-tile-info-primary-color: #F2F2F7;
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+  ha-card ha-tile-icon { display: none; }
+  ha-card ha-tile-info { text-align: center; }

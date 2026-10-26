@@ -1,0 +1,37 @@
+# uix style. Tiles with a bar in the row (progress, consumables): as "tile", the bar is
+# narrow (6 px) and short so the name keeps its space. Use features_position: inline.
+style: |
+  ha-card {
+    --ha-card-background: rgba(28, 28, 31, 0.88);
+    --ha-card-border-radius: 18px;
+    --ha-card-border-width: 0;
+    --ha-card-box-shadow: none;
+    --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --ha-tile-info-primary-font-size: 15px;
+    --ha-tile-info-primary-font-weight: 600;
+    --ha-tile-info-secondary-font-size: 13px;
+    --ha-tile-info-secondary-color: #A1A1AA;
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+  ha-card ha-tile-icon {
+    --tile-icon-color: var(--zh-icon-bg, #E4E4E7);
+    --tile-icon-opacity: var(--zh-icon-op, 0.12);
+    --tile-icon-hover-opacity: var(--zh-icon-op, 0.2);
+  }
+  ha-card ha-tile-icon > * { color: var(--zh-icon-fg, #E4E4E7); }
+  ha-card.active:has(ha-tile-icon:is([data-domain=light], [data-domain=switch], [data-domain=input_boolean], [data-domain=fan], [data-domain=vacuum], [data-domain=media_player][data-state=playing])) {
+    --ha-card-background: #F2F2F7;
+    --primary-text-color: #111113;
+    --secondary-text-color: #3F3F46;
+    --ha-tile-info-primary-color: #111113;
+    --ha-tile-info-secondary-color: #3F3F46;
+    --zh-icon-bg: #FFFFFF;
+    --zh-icon-op: 1;
+    --zh-icon-fg: color-mix(in srgb, var(--tile-color) 72%, #000);
+  }
+  ha-card hui-card-features {
+    --feature-height: 6px;
+    --feature-border-radius: 3px;
+    width: 84px;
+  }

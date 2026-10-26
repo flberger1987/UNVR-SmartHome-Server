@@ -38,7 +38,10 @@
 #   unifi-os/                   two newest UniFi OS console backups (.unifi:
 #                               console, users and every app; encrypted for the
 #                               console owner) with their .metadata.json
-#   SYSTEM.md                   private system sheet, if kept as <dest>/SYSTEM.md
+#   homeassistant/              two newest Home Assistant backups (.tar: config
+#                               and database; its automatic backups, encrypted
+#                               with the key from its emergency kit)
+#   SYSTEM.md                  private system sheet, if kept as <dest>/SYSTEM.md
 #   MANIFEST.txt, SHA256SUMS
 # and the boot medium image <dest>/sd-card/sd-boot.img.zst (+ .sha256, .sfdisk,
 # .date, .state); it replaces the previous one only after every partition of it
@@ -247,6 +250,12 @@ mkdir -p "$B/protect" "$B/unifi-os"
     if [ -f "$m" ]; then cp -p "$m" "$B/unifi-os/$(basename "$f" .unifi).metadata.json" && own "$B/unifi-os/$(basename "$f" .unifi).metadata.json"; fi
 done
 { ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | tail -n +3 | while read -r f; do rm -f "$f" "${f%.unifi}.metadata.json"; done
+# newest Home Assistant backups (its automatic backups: config and database;
+# config.tar.zst above has the config without the database)
+mkdir -p "$B/homeassistant"
+{ ls -t "$A"/data/homeassistant/config/backups/*.tar 2>/dev/null || true; } | head -2 \
+    | while read -r f; do cp -p "$f" "$B/homeassistant/" && own "$B/homeassistant/${f##*/}"; done
+{ ls -t "$B"/homeassistant/*.tar 2>/dev/null || true; } | tail -n +3 | while read -r f; do rm -f "$f"; done
 # what a console backup holds (an app whose export failed is missing in it)
 console_apps() {
     jq -r '[(.controllers // {}), (.services // {}) | to_entries[] | "\(.key) \(if .value.success then "ok" else "FAILED" end)"] | join(", ")' \
@@ -279,6 +288,9 @@ if [ "${1:-}" = --sd-image ]; then sd_image || sd_failed=1; fi
     { ls -t "$B"/protect/*.zip 2>/dev/null || true; } | while read -r f; do echo "  protect/$(basename "$f")"; done
     { ls -t "$B"/unifi-os/*.unifi 2>/dev/null || true; } | while read -r f; do
         echo "  unifi-os/$(basename "$f") ($(date -r "$f" '+%F %R'): $(console_apps "$f"))"
+    done
+    { ls -t "$B"/homeassistant/*.tar 2>/dev/null || true; } | while read -r f; do
+        echo "  homeassistant/$(basename "$f") ($(date -r "$f" '+%F %R'), $(du -h "$f" | cut -f1))"
     done
     echo
     echo "stacks (.env without secrets):"
