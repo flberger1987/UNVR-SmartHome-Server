@@ -1,18 +1,22 @@
-# UniFi UNVR to UNAS Pro Conversion
+# UNVR Smart Home Server
+
+A UniFi UNVR converted to a UNAS Pro and run as a small smart home server:
+UniFi OS (Network + Protect), LoxBerry, Home Assistant, an MJPEG camera
+transcoder for Protect, health monitoring and backups, all on the box.
 
 > [!NOTE]
 > **About this fork.** This is a fork of
 > [TaimurAyaz/unifi-unvr-to-unas](https://github.com/TaimurAyaz/unifi-unvr-to-unas)
-> with fixes for UNVRs and Macs the original converter could not handle, plus
-> tooling to repeat the conversion quickly. Everything below the fork notes is
-> the upstream documentation.
+> with fixes for UNVRs and Macs the original converter could not handle,
+> tooling to repeat the conversion quickly, and what runs on the box afterwards
+> (see below). Everything below the fork notes is the upstream documentation.
 
 ## Quick start (this fork)
 
 ```bash
 git lfs install
-git clone https://github.com/flberger1987/Unifi-UNVR-UNAS.git
-cd Unifi-UNVR-UNAS
+git clone https://github.com/flberger1987/UNVR-SmartHome-Server.git
+cd UNVR-SmartHome-Server
 tools/run-conversion.sh --ip <UNVR-IP> --skip-controller-cleanup
 ```
 
@@ -26,8 +30,9 @@ Before you start, check the [runbook](#runbook) below: **remove all drives**,
 and downgrade first if the UNVR runs UniFi OS 6.x.
 
 What runs on the converted box afterwards (Docker, UniFi OS from the Cloud Key
-Gen2 Plus with Network and Protect, LoxBerry, SD card wear reduction) and how
-to rebuild all of it from zero: [docs/RECOVERY.md](docs/RECOVERY.md) and
+Gen2 Plus with Network and Protect, LoxBerry, Home Assistant, an MJPEG camera
+for Protect, health monitoring via Telegram, cooler fan set points, SD card wear
+reduction, backups) and how to rebuild all of it from zero: [docs/RECOVERY.md](docs/RECOVERY.md) and
 [extras/unas-apps/README.md](extras/unas-apps/README.md).
 
 ## Fork changes
@@ -257,8 +262,8 @@ check and stops before conversion if something is missing.
 In Terminal, run:
 
 ```bash
-git clone https://github.com/flberger1987/Unifi-UNVR-UNAS.git
-cd Unifi-UNVR-UNAS
+git clone https://github.com/flberger1987/UNVR-SmartHome-Server.git
+cd UNVR-SmartHome-Server
 chmod +x convert.sh
 ```
 
