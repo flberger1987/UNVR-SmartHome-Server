@@ -2,11 +2,11 @@
 # the surface of the tiles.
 style: |
   ha-card {
-    --ha-card-background: rgba(28, 28, 31, 0.88);
+    --ha-card-background: var(--zh-kachel-bg, rgba(28, 28, 31, 0.88));
     --ha-card-border-radius: 18px;
     --ha-card-border-width: 0;
     --ha-card-box-shadow: none;
     --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-    -webkit-backdrop-filter: blur(24px);
-    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: var(--zh-unschaerfe, blur(24px));
+    backdrop-filter: var(--zh-unschaerfe, blur(24px));
   }

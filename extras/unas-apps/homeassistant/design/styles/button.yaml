@@ -9,8 +9,8 @@ style: |
     --ha-tile-info-primary-font-size: 14px;
     --ha-tile-info-primary-font-weight: 600;
     --ha-tile-info-primary-color: #F2F2F7;
-    -webkit-backdrop-filter: blur(24px);
-    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: var(--zh-unschaerfe, blur(24px));
+    backdrop-filter: var(--zh-unschaerfe, blur(24px));
   }
   ha-card ha-tile-icon { display: none; }
   ha-card ha-tile-info { text-align: center; }

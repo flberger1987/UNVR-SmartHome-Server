@@ -1,0 +1,15 @@
+# uix style. Sections ("uix:" on a grid section): one surface like the tiles (#1C1C1F, 88 %,
+# blurred), radius 24, 6 px inset. The cards inside turn transparent, so what belongs
+# together reads as one block; tiles that are on stay light, buttons and scenes grey.
+style: |
+  :host {
+    display: block;
+    padding: 6px;
+    border-radius: 24px;
+    background: rgba(28, 28, 31, 0.88);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    --zh-kachel-bg: transparent;
+    --zh-unschaerfe: none;
+    --zh-titel-einzug: 8px;
+  }

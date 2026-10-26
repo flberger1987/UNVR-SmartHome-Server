@@ -11,9 +11,9 @@ style:
       margin: 0 0 8px;
       padding: 12px 16px;
       border-radius: 18px;
-      background: rgba(28, 28, 31, 0.88);
-      -webkit-backdrop-filter: blur(24px);
-      backdrop-filter: blur(24px);
+      background: var(--zh-kachel-bg, rgba(28, 28, 31, 0.88));
+      -webkit-backdrop-filter: var(--zh-unschaerfe, blur(24px));
+      backdrop-filter: var(--zh-unschaerfe, blur(24px));
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     }
     ha-markdown-element > div > font {

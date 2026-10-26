@@ -1,6 +1,7 @@
 # uix style. Heading cards: section headings small, muted, upper case, spaced; page titles
 # large and bold. The light shadow keeps the text readable on a background image.
 style: |
+  :host .container { padding-inline-start: var(--zh-titel-einzug, 0); }
   ha-card { --ha-font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
   :host .container .content.subtitle,
   :host .container .content.subtitle h3 {

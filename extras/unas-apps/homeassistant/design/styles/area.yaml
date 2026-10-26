@@ -3,7 +3,7 @@
 # card's area).
 style: |
   ha-card {
-    --ha-card-background: rgba(28, 28, 31, 0.88);
+    --ha-card-background: var(--zh-kachel-bg, rgba(28, 28, 31, 0.88));
     --ha-card-border-radius: 18px;
     --ha-card-border-width: 0;
     --ha-card-box-shadow: none;
@@ -12,8 +12,8 @@ style: |
     --ha-tile-info-primary-font-weight: 600;
     --ha-tile-info-secondary-font-size: 13px;
     --ha-tile-info-secondary-color: #A1A1AA;
-    -webkit-backdrop-filter: blur(24px);
-    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: var(--zh-unschaerfe, blur(24px));
+    backdrop-filter: var(--zh-unschaerfe, blur(24px));
   }
   ha-card ha-tile-icon {
     --tile-icon-color: #E4E4E7;
