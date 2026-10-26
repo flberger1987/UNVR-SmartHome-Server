@@ -18,6 +18,25 @@ LoxBerry also answers SSH on port 22 for the user `loxberry`, keys only: put
 public keys into `/opt/loxberry/.ssh/authorized_keys` (in the `loxberry`
 volume, survives image updates).
 
+LoxBerry's MQTT gateway reconnects to the broker by itself after a dropped
+connection, but without its subscriptions: from then on it only publishes and
+relays nothing to the Miniserver, not even its keepalive (seen 2026-10-25 when
+the NAS swapped hard). A guard on the host restarts it then:
+
+```bash
+extras/unas-apps/loxberry/install-mqtt-guard.sh root@<UNAS-IP> [--remove]
+```
+
+`loxberry-mqtt-guard.timer` looks every minute at the gateway's connection to
+the broker: the same process on a new connection, or 3 minutes without a
+connection or without the process, restarts the gateway (only the gateway,
+not the broker; at most once in 10 minutes) and reports it through the
+monitor's Telegram bot. Tested by freezing the gateway for 100 s: the broker
+dropped it after 48 s, it reconnected without subscriptions, the guard
+restarted it 52 s later and the keepalive reached the Miniserver again,
+2½ minutes in all (Loxone reports a fault after about 7). `loxberry-mqtt-guard
+--status` shows the gateway and its connection.
+
 ## Quick start (from the Mac)
 
 ```bash

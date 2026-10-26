@@ -91,7 +91,7 @@ HOST_UNITS="unas-docker unas-netns-guard unas-volatile-logs unas-log-trim var-tm
   unifi-core unifi-drive unifi-directory ulp-go uos-agent unifi-identity-update
   postgresql@14-main nginx smbd ssh usd ustated usdbd uhwd rclone-rcd earlyoom cron
   systemd-journald systemd-timesyncd"
-HOST_UNITS_IF_ENABLED="unas-backup.timer unas-sd-image.timer unas-fan-config ha-mem-guard.timer"
+HOST_UNITS_IF_ENABLED="unas-backup.timer unas-sd-image.timer unas-fan-config ha-mem-guard.timer loxberry-mqtt-guard.timer"
 # units inside the containers (LoxBerry: also every enabled service)
 UNIFI_OS_UNITS="unifi-core unifi unifi-protect mongodb unifi-mongodb postgresql@14-main
   postgresql@14-protect nginx ulp-go unifi-directory"
