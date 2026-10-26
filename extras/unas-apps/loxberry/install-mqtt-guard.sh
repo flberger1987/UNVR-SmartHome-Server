@@ -16,8 +16,9 @@
 # (every minute, Nice 19). Each run looks up the gateway process (visible on
 # the host) and its TCP connection to the broker (port 1883) in the
 # container's network namespace:
-#   - the same process on a new connection: it reconnected, so its
-#     subscriptions are gone -> restart the gateway
+#   - the same process on a new connection: it reconnected; with
+#     Net::MQTT::Simple up to 1.32-3LB (LoxBerry 4.0.0.x, fixed in 4.0.1.0)
+#     its subscriptions are gone -> restart the gateway
 #   - no connection, or no gateway process, in 3 runs in a row -> restart it
 # Only the gateway restarts, not the broker (LoxBerry's "restartgateway" also
 # restarts Mosquitto, which drops every client); at most once in 10 minutes.
@@ -88,6 +89,20 @@ broker_ports() {   # broker_ports <pid>: local ports of its established connecti
         | while read -r hex; do echo $(( 16#$hex )); done | sort -n | paste -sd,
 }
 
+loses_subscriptions() {   # loses_subscriptions <pid>: does this gateway lose its subscriptions on a reconnect?
+    # Net::MQTT::Simple up to 1.32-3LB (LoxBerry 4.0.0.x) reset the wrong field on reconnect and sent no
+    # SUBSCRIBE; fixed in 1.32-4LB (LoxBerry 4.0.1.0, upstream 1.33). The Python gateway (V2) builds a new
+    # client and subscribes on every connect. Unknown versions count as affected.
+    local v
+    grep -q mqttgateway.pl "/proc/$1/cmdline" 2>/dev/null || return 1
+    v=$(sed -n "s/^our \$VERSION = '\([^']*\)'.*/\1/p" "/proc/$1/root/opt/loxberry/libs/perllib/Net/MQTT/Simple.pm" 2>/dev/null)
+    [[ "$v" =~ ^1\.([0-9]+)(-([0-9]+)LB)?$ ]] || return 0
+    (( BASH_REMATCH[1] < 32 )) && return 0
+    (( BASH_REMATCH[1] > 32 )) && return 1
+    [ -z "${BASH_REMATCH[3]}" ] && return 0
+    (( BASH_REMATCH[3] <= 3 ))
+}
+
 restart_gateway() {   # restart_gateway <reason>: only the gateway, as LoxBerry's mqtt-handler.pl does for V1
     local reason=$1 now last=0
     now=$(date +%s); { read -r last < "$STATE/restarted"; } 2>/dev/null || last=0
@@ -141,8 +156,11 @@ rm -f "$STATE/missing"
 seen_pid='' seen_ports=''
 { read -r seen_pid seen_ports < "$STATE/seen"; } 2>/dev/null || true
 if [ "$seen_pid" = "$pid" ] && [ -n "$seen_ports" ] && [ "$seen_ports" != "$ports" ]; then
-    restart_gateway "es hatte sich beim Broker neu verbunden (Port $seen_ports → $ports) und dabei seine Abos verloren"
-    exit 0
+    if loses_subscriptions "$pid"; then
+        restart_gateway "es hatte sich beim Broker neu verbunden (Port $seen_ports → $ports) und dabei seine Abos verloren"
+        exit 0
+    fi
+    echo "MQTT-Gateway hat sich neu verbunden (Port $seen_ports → $ports); seine Bibliothek abonniert neu, kein Neustart"
 fi
 echo "$pid $ports" > "$STATE/seen"
 SH

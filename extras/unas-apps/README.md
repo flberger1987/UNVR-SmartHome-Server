@@ -18,24 +18,32 @@ LoxBerry also answers SSH on port 22 for the user `loxberry`, keys only: put
 public keys into `/opt/loxberry/.ssh/authorized_keys` (in the `loxberry`
 volume, survives image updates).
 
-LoxBerry's MQTT gateway reconnects to the broker by itself after a dropped
-connection, but without its subscriptions: from then on it only publishes and
-relays nothing to the Miniserver, not even its keepalive (seen 2026-10-25 when
-the NAS swapped hard). A guard on the host restarts it then:
+LoxBerry 4.0.0.x: the MQTT gateway (V1) reconnects to the broker by itself
+after a dropped connection, but without its subscriptions: from then on it
+only publishes and relays nothing to the Miniserver, not even its keepalive
+(seen 2026-10-25 when the NAS swapped hard). The cause is the bundled
+Net::MQTT::Simple 1.32-3LB: `_connect()` resets `{subscribed}` instead of
+`{actually_subscribed}`, so no SUBSCRIBE goes out again. LoxBerry 4.0.1.0
+fixes it (1.32-4LB, issue #1571); on 4.0.0.x the one line can be changed in
+`/opt/loxberry/libs/perllib/Net/MQTT/Simple.pm` (in the LoxBerry volume) and
+the gateway restarted. A guard on the host covers the rest:
 
 ```bash
 extras/unas-apps/loxberry/install-mqtt-guard.sh root@<UNAS-IP> [--remove]
 ```
 
 `loxberry-mqtt-guard.timer` looks every minute at the gateway's connection to
-the broker: the same process on a new connection, or 3 minutes without a
-connection or without the process, restarts the gateway (only the gateway,
-not the broker; at most once in 10 minutes) and reports it through the
-monitor's Telegram bot. Tested by freezing the gateway for 100 s: the broker
+the broker. 3 minutes without a connection or without the process restart the
+gateway; so does the same process on a new connection while its
+Net::MQTT::Simple is 1.32-3LB or older (it reads the version from the
+gateway's own files). Only the gateway restarts, not the broker, at most once
+in 10 minutes, and each restart is reported through the monitor's Telegram
+bot. Tested by freezing the gateway for 100 s: with 1.32-3LB the broker
 dropped it after 48 s, it reconnected without subscriptions, the guard
 restarted it 52 s later and the keepalive reached the Miniserver again,
-2½ minutes in all (Loxone reports a fault after about 7). `loxberry-mqtt-guard
---status` shows the gateway and its connection.
+2½ minutes in all (Loxone reports a fault after about 7); with the one-line
+fix it resubscribed by itself and the guard left it alone.
+`loxberry-mqtt-guard --status` shows the gateway and its connection.
 
 ## Quick start (from the Mac)
 
