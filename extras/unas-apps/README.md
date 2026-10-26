@@ -45,6 +45,14 @@ restarted it 52 s later and the keepalive reached the Miniserver again,
 fix it resubscribed by itself and the guard left it alone.
 `loxberry-mqtt-guard --status` shows the gateway and its connection.
 
+Two more LoxBerry scripts are patched in place, still unfixed in LoxBerry
+4.0.1.1 (originals next to them as `*.4.0.0.15.orig`; a LoxBerry update
+replaces them): `sbin/mqttgateway.pl` no longer drops the plugins'
+subscriptions after the UDP command `reconnect` (V1 emptied its plugin list,
+so the next config reload subscribed without them), and `sbin/mqtt-handler.pl`
+stops with "must run as root" and exit code 1 when run without root, instead
+of killing the gateway and failing to start it again.
+
 ## Quick start (from the Mac)
 
 ```bash
