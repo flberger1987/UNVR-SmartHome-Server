@@ -231,6 +231,21 @@ LoxBerry's address, port 1883.
 
 Memory: about 300 MB in the base setup (measured 2026-10-25); with UniFi OS
 (Network + Protect) and LoxBerry on the 4 GB box about 0.8 GB stays available.
+That is not much: some custom integrations need a lot more (a robot vacuum
+integration that renders its map at full resolution grew to 2.2 GB in 20
+minutes) or grow over hours. Docker can't cap a container here (no cgroups),
+so a growing Home Assistant fills the swap and then starves UniFi OS and
+Protect. The guard restarts it above a limit and reports it via the monitor's
+Telegram bot:
+
+```bash
+extras/unas-apps/homeassistant/install-mem-guard.sh root@<UNAS-IP> [--limit 1200]
+```
+
+`ha-mem-guard.timer` checks RAM + swap of the Home Assistant process every 2
+minutes; above the limit (MB) in 2 runs in a row it runs `docker restart
+homeassistant`. `ha-mem-guard --status` shows the current use; `--remove`
+uninstalls it.
 
 ## MJPEG camera in UniFi Protect
 
